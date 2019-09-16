@@ -44,6 +44,7 @@ from .ir import (
     succ_incoming,
 )
 from .prim import Primitive
+from .prim import ops as P
 from .utils import InferenceError, MyiaTypeError, overload
 
 
@@ -65,6 +66,14 @@ def _fix_type(self, a: GraphFunction, spc):
     else:
         assert a.graph not in spc.results
         return DummyFunction()
+
+
+@overload
+def _fix_type(self, a: PrimitiveFunction, spc):
+    try:
+        return spc.analyze_function(None, a, None)[0].abstract.get_unique()
+    except Unspecializable:
+        return a
 
 
 @abstract_check.variant(
