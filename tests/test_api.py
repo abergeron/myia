@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from myia.api import myia, to_device
-from myia.cconv import closure_convert
+from myia.compile import closure_convert
 from myia.ir import clone
 from myia.pipeline import (
     scalar_debug_compile as compile,
