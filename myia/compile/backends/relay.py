@@ -5,17 +5,17 @@ from itertools import accumulate
 import numpy as np
 import tvm
 from tvm import relay
-from tvm.relay import adt
+from tvm.relay import adt, transform
 from tvm.relay.backend import interpreter
 
 from ...abstract import AbstractTaggedUnion
 from ...graph_utils import toposort
-from ...ir import manage
+from ...ir import manage, Graph
 from ...operations import Primitive, primitives as P
 from ...utils import HandleInstance, RandomStateWrapper, TaggedValue
 from ...xtype import UniverseType, type_to_np_dtype
 from ..channel import handle
-from ..transform import get_prim_graph, return_handles, wrap_result
+from ..transform import get_prim_graph, return_handles, wrap_result, collapse_graph_constants
 from . import Backend, Converter, HandleBackend, relay_philox
 from .relay_helpers import (
     TypeHelper,
@@ -545,15 +545,37 @@ class NodeVisitor:
     def __call__(self, node):
         """Don't visit called primitives."""
         if node.inputs:
-            if node.inputs[0].is_constant(Primitive):
-                prim = node.inputs[0].value
+            fn = node.inputs[0]
+            if fn.is_constant(Primitive):
+                prim = fn.value
                 visit = getattr(self, f'_visit_{prim}', None)
                 if visit is None:
                     return node.inputs[1:]
                 return visit(node)
             else:
                 return node.inputs
+        elif node.is_constant_graph():
+            fvs = list(node.value.free_variables_total)
+            res = []
+            for fv in fvs:
+                if isinstance(fv, Graph):
+                    if node.value is not fv:
+                        res.append(list(fv.manager.graph_constants[fv])[0])
+                else:
+                    res.append(fv)
+            return res
         return []
+
+
+def in_graph(g):
+    def filter(node):
+        if node.graph is None:
+            return 'follow'
+        elif node.graph is g:
+            return 'follow'
+        else:
+            return 'exclude'
+    return filter
 
 
 class RelayConstantConverter(Converter):
@@ -615,6 +637,7 @@ class CompileGraph:
         """Convert the graph into a relay callable."""
         mng = manage(graph)
 
+        graph = collapse_graph_constants(graph)
         graph, handles_params = return_handles(graph)
 
         self.module = tvm.IRModule({})
@@ -631,21 +654,23 @@ class CompileGraph:
         self.graph_map = {}
 
         for g in mng.graphs:
-            if g.parent is None:
-                if g is graph:
-                    self.graph_map[g] = relay.GlobalVar("main")
-                else:
-                    # Mangle a "main" from the user
-                    name = g.debug.debug_name
-                    if name == "main":  # pragma: no cover
-                        name = "!main"
-                    self.graph_map[g] = relay.GlobalVar(name)
+            if g is graph:
+                self.graph_map[g] = relay.GlobalVar("main")
+            else:
+                # Mangle a "main" from the user
+                name = g.debug.debug_name
+                if name == "main":  # pragma: no cover
+                    name = "!main"
+                self.graph_map[g] = relay.GlobalVar(name)
 
         for g in self.graph_map.keys():
             function_map[self.graph_map[g]] = self.convert_func(g)
 
         self.types.finalize(self.module)
         add_functions(self.module, function_map)
+
+        print("################################################")
+        print(str(self.module))
 
         vm = relay.create_executor(mod=self.module, ctx=context,
                                    target=target, kind=EXEC_KIND)
@@ -687,17 +712,22 @@ class CompileGraph:
         if node.value.parent is None:
             return self.graph_map[node.value]
         if node not in self.node_map:
-            v = relay.var(f"lv.{id(node)}")
-            self.node_map[node] = v
-            g = self.convert_func(node.value)
-            self.node_map[node] = relay.Let(v, g, v)
+            self.node_map[node] = self.make_closure(node)
         return self.node_map[node]
+
+    def on_partial(self, node):
+        graph = node.inputs[1].value
+        fvs = graph.free_variables_total
+        for fv in fvs:
+            assert fv in self.node_map
+        args = [self.ref(fv) for fv in fvs]
+        return relay.Call(self.graph_map(graph), args)
 
     def ref(self, node):
         """Return the value for a node."""
         return self.node_map[node]
 
-    def convert_func(self, graph):
+    def convert_func(self, graph, ignore_closure=False):
         """Convert a graph."""
         vname = "handle_seq" + graph.debug.debug_name
         i = 0
@@ -707,7 +737,7 @@ class CompileGraph:
         params = [self.ref(p) for p in graph.parameters]
 
         useq = []
-        for node in toposort(graph.output, NodeVisitor()):
+        for node in toposort(graph.output, NodeVisitor(), in_graph(graph)):
             if any(p.abstract.xtype() is UniverseType
                    for p in node.inputs[1:]):
                 useq.append(node)
@@ -729,10 +759,31 @@ class CompileGraph:
                 self.on_apply(uop),
                 out)
 
-        res = relay.Function(params, out,
-                             ret_type=to_relay_type(graph.output.abstract))
+        return relay.Function(params, out,
+                              ret_type=to_relay_type(graph.output.abstract))
 
-        return res
+    def make_closure(self, node):
+        v = relay.var(f"lv.{id(node)}",
+                      type_annotation=to_relay_type(node.abstract))
+        self.node_map[node] = v
+        node_map_backup = {}
+        fvs = [list(fv.manager.graph_constants[fv])[0]
+               if isinstance(fv, Graph) else fv
+               for fv in node.value.free_variables_total]
+        for fv in fvs:
+            if fv is node:
+                continue
+            else:
+                node_map_backup[fv] = self.ref(fv)
+                vv = relay.var(f"free_val.{id(fv)}",
+                               type_annotation=to_relay_type(fv.abstract))
+                self.node_map[fv] = vv
+        g = self.convert_func(node.value)
+        out = relay.Let(v, g, v)
+        for fv in reversed(fvs):
+            out = relay.Let(self.ref(fv), node_map_backup[fv], out)
+        self.node_map.update(node_map_backup)
+        return out
 
 
 compiler = CompileGraph()

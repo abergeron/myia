@@ -111,6 +111,22 @@ def return_handles(graph):
     return graph, handle_idx
 
 
+def collapse_graph_constants(root):
+    """Canonicalize graph constants."""
+    mng = root.manager
+
+    with mng.transact() as tr:
+        for g in mng.graphs:
+            g_cst = list(mng.graph_constants[g])
+            if len(g_cst) <= 1:
+                continue
+            canon_cst = g_cst[0]
+            for cst in g_cst[1:]:
+                tr.replace(cst, canon_cst)
+
+    return root
+
+
 @overload
 def wrap_result(data: tuple):
     """Function to wrap final results in a handle.
@@ -418,6 +434,7 @@ __all__ = [
     'CompileGraph',
     'CompileGraphs',
     'convert_grad',
+    'collapse_graph_constants',
     'wrap_primitives',
     'wrap_result',
     'return_handles',
