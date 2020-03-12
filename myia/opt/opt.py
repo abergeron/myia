@@ -1,6 +1,6 @@
 """Graph optimization routines."""
 
-from collections import deque
+from collections import deque, defaultdict
 from weakref import WeakKeyDictionary
 
 from ..info import About
@@ -79,14 +79,17 @@ class PatternSubstitutionOptimization:
               variables filled in, if the pattern matches.
 
         """
-        equiv = self.unif.unify(node, self.pattern)
+        equiv, failed = self.unif.unify(node, self.pattern, return_failed=True)
         if equiv is not None:
             if callable(self.replacement):
                 return self.replacement(resources, node, equiv)
             elif self.condition is None or self.condition(equiv):
-                return self.unif.reify(self.replacement, equiv)
+                return self.unif.reify(self.replacement, equiv), None
+            else:
+                # There might be a way to revisit those, but I don't know
+                return None, []
         else:
-            return None
+            return None, [failed[0]]
 
     def __str__(self):
         return f'<PatternSubstitutionOptimization {self.name}>'
@@ -174,6 +177,14 @@ class LocalPassOptimizer:
         else:
             mng = manage(graph)
 
+        revisit_map = defaultdict(OrderedSet)
+
+        def remove_revisit(ev, node):
+            if node in revisit_map:
+                del revisit_map[node]
+
+        mng.events.drop_node.register(remove_revisit)
+
         seen = set([graph])
         todo = deque()
         changes = False
@@ -185,7 +196,11 @@ class LocalPassOptimizer:
                 continue
             seen.add(n)
 
-            new, chg = self.apply_opt(mng, n)
+            new, chg, revisit_on = self.apply_opt(mng, n)
+
+            if not chg:
+                for k, v in revisit_on.items():
+                    revisit_map[k].update(v)
 
             changes |= chg
 
@@ -197,11 +212,11 @@ class LocalPassOptimizer:
                 todo.extendleft(reversed(new.inputs))
 
             if chg:
-                # Since there was changes, re-schedule the parent node(s)
-                uses = OrderedSet(u[0] for u in mng.uses[new])
-                seen.difference_update(uses)
-                todo.extendleft(uses)
+                revisit_list = revisit_map[n]
+                seen.difference_update(revisit_list)
+                todo.extendleft(revisit_list)
 
+        mng.events.drop_node.remove(remove_revisit)
         return changes
 
     def apply_opt(self, mng, n):
@@ -210,6 +225,7 @@ class LocalPassOptimizer:
         changes = False
         while loop:
             loop = False
+            revisit_map = defaultdict(list)
             for transformer in self.node_map.get(n):
                 args = dict(
                     opt=transformer,
@@ -220,7 +236,10 @@ class LocalPassOptimizer:
                 with tracer('opt', **args) as tr:
                     tr.set_results(success=False, **args)
                     with About(n.debug, 'opt', transformer.name):
-                        new = transformer(self.resources, n)
+                        new, rev = transformer(self.resources, n)
+                    if new is None or new is n:
+                        for rn in rev:
+                            revisit_map[rn].append(n)
                     if new is not None and new is not n:
                         tracer().emit_match(**args, new_node=new)
                     if new is True:
@@ -235,7 +254,7 @@ class LocalPassOptimizer:
                         changes = True
                         break
 
-        return n, changes
+        return n, changes, revisit_map
 
 
 class GraphTransform:

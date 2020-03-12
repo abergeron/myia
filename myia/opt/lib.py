@@ -91,7 +91,7 @@ def getitem_tuple(resources, node, equiv):
     """
     i = equiv[C].value
     assert isinstance(i, int)
-    return equiv[Xs][i]
+    return equiv[Xs][i], None
 
 
 @pattern_replacer(P.tuple_setitem, (P.make_tuple, Xs), C, Z)
@@ -106,7 +106,7 @@ def setitem_tuple(resources, node, equiv):
     assert isinstance(i, int)
     elems = list(equiv[Xs])
     elems[i] = equiv[Z]
-    return sexp_to_node((P.make_tuple, *elems), node.graph)
+    return sexp_to_node((P.make_tuple, *elems), node.graph), None
 
 
 @pattern_replacer(P.tuple_setitem, C1, C2, Z)
@@ -123,7 +123,7 @@ def setitem_tuple_ct(resources, node, equiv):
     assert isinstance(i, int)
     elems = list(tup)
     elems[i] = equiv[Z]
-    return sexp_to_node((P.make_tuple, *elems), node.graph)
+    return sexp_to_node((P.make_tuple, *elems), node.graph), None
 
 
 # f((a, b, ...), (p, q, ...)) => (f(a, p), f(b, q), ...)
@@ -142,7 +142,7 @@ def bubble_op_tuple_binary(resources, node, equiv):
     op = equiv[_BubbleBinary]
     assert len(xs) == len(ys)
     elems = [(op, x, y) for x, y in zip(xs, ys)]
-    return sexp_to_node((P.make_tuple, *elems), node.graph)
+    return sexp_to_node((P.make_tuple, *elems), node.graph), None
 
 
 ###########################
@@ -374,9 +374,9 @@ def elim_transpose(resources, node, equiv):
     """Remove transposes that correspond to identity."""
     axes = equiv[C].value
     if axes == tuple(range(len(axes))):
-        return equiv[X]
+        return equiv[X], None
     else:
-        return node
+        return node, []
 
 
 @pattern_replacer(P.transpose, (P.transpose, X, C1), C2)
@@ -386,7 +386,7 @@ def merge_transposes(resources, node, equiv):
     axes2 = equiv[C2].value
     assert len(axes1) == len(axes2)
     axes_final = tuple(axes1.index(x) for x in axes2)
-    return node.graph.apply(P.transpose, equiv[X], axes_final)
+    return node.graph.apply(P.transpose, equiv[X], axes_final), None
 
 
 @pattern_replacer(P.array_map, G, Xs)
@@ -431,7 +431,7 @@ def unfuse_composite(resources, node, equiv):
     r = UnfuseRemapper(g, xs[0])
     r.run()
     ng = r.get_graph(g)
-    return node.graph.apply(ng, *xs)
+    return node.graph.apply(ng, *xs), None
 
 
 @pattern_replacer(P.array_map, G, Xs)
@@ -473,25 +473,25 @@ def simplify_array_map(resources, node, equiv):
             raise NotImplementedError()
 
     if len(g.scope) > 1:
-        return node
+        return node, [equiv[G]]
 
     out = g.output
 
     try:
         if out.is_parameter() or out.is_constant():
-            return to_outer(out)
+            return to_outer(out), None
         elif out.inputs[0].is_constant():
             args = [to_outer(arg) for arg in out.inputs[1:]]
-            return node.graph.apply(P.array_map, out.inputs[0], *args)
+            return node.graph.apply(P.array_map, out.inputs[0], *args), None
         else:
-            return node  # pragma: no cover
+            return node, []  # pragma: no cover
 
     except NotImplementedError:
         if g.has_flags('inline_inside'):
-            return node
+            return node, [equiv[G]]
         else:
             g.set_flags('inline_inside')
-            return True
+            return True, [equiv[G]]
 
 
 #############################
@@ -510,10 +510,10 @@ def cancel_env_set_get(resources, node, equiv):
     key1 = equiv[C1]
     key2 = equiv[C2]
     if key1.value == key2.value:
-        return equiv[Y]
+        return equiv[Y], None
     else:
         sexp = (P.env_getitem, equiv[X], key2, equiv[Z])
-        return sexp_to_node(sexp, node.graph)
+        return sexp_to_node(sexp, node.graph), None
 
 
 # getitem(newenv, key, default) => default
@@ -663,7 +663,7 @@ def resolve_globals(resources, node, equiv):
     ns = equiv[CNS]
     x = equiv[C]
     res = resources.convert(ns.value[x.value])
-    return Constant(res)
+    return Constant(res), None
 
 
 ############
@@ -684,19 +684,20 @@ def make_inliner(inline_criterion, check_recursive, name):
     """
     @pattern_replacer(G, Xs, interest=Graph)
     def inline(resources, node, equiv):
-        g = equiv[G].value
+        g_cst = equiv[G]
+        g = g_cst.value
         args = equiv[Xs]
 
         if inline_criterion is not None:
             if not inline_criterion(g, node, args):
-                return node
+                return node, [g_cst]
 
         if check_recursive:
             if g.recursive:
-                return node
+                return node, [g_cst]
 
         clone = GraphCloner(inline=(g, node.graph, args), total=False)
-        return clone[g.output]
+        return clone[g.output], None
 
     inline.name = name
     return inline
@@ -771,8 +772,8 @@ def replace_applicator(resources, node, equiv):
         # it safe.
         if inner.is_constant(Primitive) \
                 or inner.is_constant_graph() and inner.value.parent is None:
-            return inner
-    return node
+            return inner, None
+    return node, [out]
 
 
 ##################
@@ -811,12 +812,12 @@ def specialize_on_graph_arguments(resources, node, equiv):
     xs = equiv[Xs]
     specialize = [x.is_constant((Graph, Primitive)) for x in xs]
     if not any(specialize):
-        return node
+        return node, xs
     specialize_map = tuple(x.value if s else None
                            for x, s in zip(xs, specialize))
     new_xs = [x for x, s in zip(xs, specialize) if not s]
     g2 = specialize_transform(g, specialize_map)
-    return node.graph.apply(g2, *new_xs)
+    return node.graph.apply(g2, *new_xs), None
 
 
 #################
@@ -1010,8 +1011,8 @@ def expand_J(resources, node, equiv):
     try:
         newg = Jimpl(arg, resources, node)
     except NotImplementedError:
-        return None
-    return Constant(newg)
+        return None, [equiv[C]]
+    return Constant(newg), None
 
 
 @abstract_clone.variant
