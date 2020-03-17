@@ -45,7 +45,7 @@ class PatternSubstitutionOptimization:
                  name=None,
                  multigraph=True,
                  interest=False):
-        """Initialize va PatternSubstitutionOptimization."""
+        """Initialize a PatternSubstitutionOptimization."""
         g: Var = Var('RootG')
         self.sexp = pattern
         self.pattern = sexp_to_node(pattern, g, multigraph)
