@@ -76,9 +76,9 @@ def getitem_setitem_tuple(resources, node, equiv):
     i1 = equiv[C1].value
     i2 = equiv[C2].value
     if i1 == i2:
-        return equiv[Y]
+        return equiv[Y], None
     else:
-        return node.graph.apply(P.tuple_getitem, equiv[X], i2)
+        return node.graph.apply(P.tuple_getitem, equiv[X], i2), None
 
 
 @pattern_replacer(P.tuple_getitem, (P.make_tuple, Xs), C)
