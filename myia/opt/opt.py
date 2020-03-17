@@ -4,7 +4,7 @@ from collections import deque, defaultdict
 from weakref import WeakKeyDictionary
 
 from ..info import About
-from ..ir import Apply, Graph, manage, sexp_to_node
+from ..ir import Apply, Graph, manage, sexp_to_node, ANFNode
 from ..operations import Primitive
 from ..utils import OrderedSet, tracer
 from ..utils.unify import Unification, Var
@@ -89,7 +89,11 @@ class PatternSubstitutionOptimization:
                 # There might be a way to revisit those, but I don't know
                 return None, []
         else:
-            return None, [failed[0]]
+            ft = reversed(failed[0])
+            for fnode in ft:
+                if isinstance(fnode, ANFNode):
+                    break
+            return None, [fnode]
 
     def __str__(self):
         return f'<PatternSubstitutionOptimization {self.name}>'
@@ -256,7 +260,7 @@ class LocalPassOptimizer:
                             if rn is n:
                                 continue
                             revisit_map[rn].append(n)
-                    if new is not None and new is not n:
+                    else:
                         tracer().emit_match(**args, new_node=new)
                     if new is True:
                         changes = True

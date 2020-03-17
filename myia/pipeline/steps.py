@@ -315,9 +315,11 @@ step_opt = Optimizer.partial(
             optlib.gadd_zero_r,
             optlib.gadd_switch,
             optlib.incorporate_call_through_switch,
+
             # Costlier optimizations
             optlib.float_tuple_getitem_through_switch,
             optlib.float_env_getitem_through_switch,
+
             # We may reactivate those later, but they are slow
             # optlib.incorporate_getitem,
             # optlib.incorporate_env_getitem,
