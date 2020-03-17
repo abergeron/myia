@@ -178,10 +178,10 @@ class LocalPassOptimizer:
             mng = manage(graph)
 
         revisit_map = defaultdict(OrderedSet)
+        _to_del = []
 
         def remove_revisit(ev, node):
-            if node in revisit_map:
-                del revisit_map[node]
+            _to_del.append(node)
 
         mng.events.drop_node.register(remove_revisit)
 
@@ -189,6 +189,8 @@ class LocalPassOptimizer:
         todo = deque()
         changes = False
         todo.append(graph.output)
+        revisits = 0
+        parents = 0
 
         while len(todo) > 0:
             n = todo.popleft()
@@ -197,10 +199,6 @@ class LocalPassOptimizer:
             seen.add(n)
 
             new, chg, revisit_on = self.apply_opt(mng, n)
-
-            if not chg:
-                for k, v in revisit_on.items():
-                    revisit_map[k].update(v)
 
             changes |= chg
 
@@ -211,11 +209,27 @@ class LocalPassOptimizer:
             else:
                 todo.extendleft(reversed(new.inputs))
 
-            if chg:
+            if not chg:
+                for k, v in revisit_on.items():
+                    revisit_map[k].update(v)
+            else:
                 revisit_list = revisit_map[n]
+                revisits += len(revisit_list)
+                uses = OrderedSet(u[0] for u in mng.uses[new])
+                parents += len(uses)
+                diff = OrderedSet(revisit_list) - uses
+                if len(diff) != 0:
+                    breakpoint()
+                    print("DIFFERENCE:", diff)
                 seen.difference_update(revisit_list)
                 todo.extendleft(revisit_list)
 
+            for d in _to_del:
+                if d in revisit_map:
+                    del revisit_map[d]
+            _to_del.clear()
+
+        print("Revisits:", revisits, "Parents:", parents)
         mng.events.drop_node.remove(remove_revisit)
         return changes
 
@@ -239,6 +253,8 @@ class LocalPassOptimizer:
                         new, rev = transformer(self.resources, n)
                     if new is None or new is n:
                         for rn in rev:
+                            if rn is n:
+                                continue
                             revisit_map[rn].append(n)
                     if new is not None and new is not n:
                         tracer().emit_match(**args, new_node=new)
