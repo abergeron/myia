@@ -193,8 +193,6 @@ class LocalPassOptimizer:
         todo = deque()
         changes = False
         todo.append(graph.output)
-        revisits = 0
-        parents = 0
 
         while len(todo) > 0:
             n = todo.popleft()
@@ -218,22 +216,20 @@ class LocalPassOptimizer:
                     revisit_map[k].update(v)
             else:
                 revisit_list = revisit_map[n]
-                revisits += len(revisit_list)
-                uses = OrderedSet(u[0] for u in mng.uses[new])
-                parents += len(uses)
-                diff = OrderedSet(revisit_list) - uses
-                if len(diff) != 0:
-                    breakpoint()
-                    print("DIFFERENCE:", diff)
-                seen.difference_update(revisit_list)
-                todo.extendleft(revisit_list)
+                uses = OrderedSet(revisit_list)
+
+                # This might seem dumb, but if we don't do it,
+                # we don't revisit enough and end up taking more time.
+                uses.update(u[0] for u in mng.uses[new])
+
+                seen.difference_update(uses)
+                todo.extendleft(uses)
 
             for d in _to_del:
                 if d in revisit_map:
                     del revisit_map[d]
             _to_del.clear()
 
-        print("Revisits:", revisits, "Parents:", parents)
         mng.events.drop_node.remove(remove_revisit)
         return changes
 
