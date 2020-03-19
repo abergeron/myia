@@ -11,8 +11,7 @@ from ..ir import Graph
 from ..opt import (
     CSE,
     DeadDataElimination,
-    LocalPassOptimizer,
-    NodeMap,
+    SweepPassOptimizer,
     lib as optlib,
 )
 from ..parser import parse
@@ -58,10 +57,7 @@ class Optimizer(Partializable):
             if spec == 'renormalize':
                 pass
             elif isinstance(spec, list):
-                nmap = NodeMap()
-                for opt in spec:
-                    nmap.register(getattr(opt, 'interest', None), opt)
-                spec = LocalPassOptimizer(nmap, resources=resources)
+                spec = SweepPassOptimizer(spec, resources=resources)
             else:
                 spec = spec(resources=resources)
             names.append(name)

@@ -1,6 +1,6 @@
 """Graph optimization routines."""
 
-from collections import deque
+from collections import deque, defaultdict
 from weakref import WeakKeyDictionary
 
 from ..info import About
@@ -237,6 +237,188 @@ class LocalPassOptimizer:
 
         return n, changes
 
+class _RegistryEntry(OrderedSet):
+    def __init__(self):
+        super().__init__([])
+        self.recording = False
+        self.new = []
+
+    def add(self, v):
+        super().add(v)
+        if self.recording:
+            self.new.append(v)
+
+    def remove(self, v):
+        if self.recording:
+            try:
+                self.new.remove(v)
+            except ValueError:
+                pass
+        super().remove(v)
+
+    def start_recording(self):
+        assert self.recording is False
+        self.recording = True
+        self.new = []
+
+    def stop_recording(self):
+        self.recording = False
+        self.new = []
+
+
+class ApplyMap:
+    """
+    Keep a live map of apply values to nodes.
+    """
+
+    def __init__(self, manager):
+        self.registry = defaultdict(_RegistryEntry)
+        self.manager = manager
+        self._recording = False
+        self._new = []
+
+        for node in manager.all_nodes:
+            self._on_add_node(None, node)
+
+        evts = manager.events
+        evts.add_node.register(self._on_add_node)
+        evts.drop_node.register(self._on_drop_node)
+
+    def detach(self):
+        evts = self.manager.events
+        evts.add_node.remove(self._on_add_node)
+        evts.drop_node.remove(self._on_drop_node)
+        self.registry = None
+        self.manager = None
+
+    def start_recording(self):
+        assert self._recording is False
+        self._recording = True
+        self._new = []
+
+    def stop_recording(self):
+        self._recording = False
+        self._new = []
+
+    def _all_node_iter(self):
+        """Iterator to visit all the nodes in a changing manager."""
+        self.start_recording()
+        nodes = list(self.manager.all_nodes)
+        for node in nodes:
+            if node in self.manager.all_nodes:
+                yield node
+
+        while True:
+            new_nodes = self._new
+            self._new = []
+            if len(new_nodes) == 0:
+                break
+            for node in new_nodes:
+                if node in self.manager.all_nodes:
+                    yield node
+        self.stop_recording()
+
+    def get_nodes(self, interest):
+        yield from self._all_node_iter()
+
+    """
+        if interest is None:
+            pass
+        else:
+            if not isinstance(interest, tuple):
+                interest = (interest,)
+            for int in interest:
+                nodes = self.registry[int]
+                nodes.start_recording()
+                for node in list(nodes):
+                    if node in self.manager.all_nodes:
+                        yield node
+            stop = False
+            while not stop:
+                stop = True
+                for int in interest:
+                    nodes = self.registry[int]
+                    new = list(nodes.new)
+                    nodes.new = []
+                    if len(new) != 0:
+                        stop = False
+                        for node in new:
+                            if node in self.manager.all_nodes:
+                                yield node
+            for int in interest:
+                self.registry[int].stop_recording()
+    """
+
+    def _on_add_node(self, event, node):
+        if self._recording:
+            self._new.append(node)
+        if node.is_apply():
+            self.registry[Apply].add(node)
+            if node.inputs[0].is_constant_graph():
+                self.registry[Graph].add(node)
+            elif node.inputs[0].is_constant():
+                self.registry[node.inputs[0].value].add(node)
+
+    def _on_drop_node(self, event, node):
+        if self._recording:
+            try:
+                self._new.remove(node)
+            except ValueError:
+                pass
+        if node.is_apply():
+            self.registry[Apply].remove(node)
+            if node.inputs[0].is_constant_graph():
+                self.registry[Graph].remove(node)
+            elif node.inputs[0].is_constant():
+                self.registry[node.inputs[0].value].remove(node)
+
+
+class SweepPassOptimizer:
+    def __init__(self, opt_list, resources=None):
+        self.opt_list = opt_list
+        self.resources = resources
+
+    def __call__(self, graph):
+        if self.resources is not None:
+            mng = self.resources.manager
+            mng.add_graph(graph)
+        else:
+            mng = manage(graph)
+
+        amap = ApplyMap(mng)
+        changes = False
+
+        for opt in self.opt_list:
+            changes |= self.opt_pass(opt, mng, amap)
+
+        amap.detach()
+        return changes
+
+    def opt_pass(self, opt, mng, amap):
+        changes = False
+        interest = getattr(opt, 'interest', None)
+        for node in amap.get_nodes(interest):
+            args = dict(
+                opt=opt,
+                node=node,
+                manager=mng,
+                profile=False,
+            )
+            with tracer('opt', **args) as tr:
+                tr.set_results(success=False, **args)
+                with About(node.debug, 'opt', opt.name):
+                    new = opt(self.resources, node)
+                if new is True:
+                    changes = True
+                elif new is not None and new is not node:
+                    tracer().emit_match(**args, new_node=new)
+                    mng.replace(node, new)
+                    tracer().emit_success(**args, new_node=new)
+                    tr.set_results(success=True, **args)
+                    changes = True
+                    #self.process_revisits(mng, amap)
+        return changes
+
 
 class GraphTransform:
     """Represents a graph transform.
@@ -273,4 +455,5 @@ __all__ = [
     'NodeMap',
     'PatternSubstitutionOptimization',
     'pattern_replacer',
+    'SweepPassOptimizer',
 ]
