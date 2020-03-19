@@ -319,11 +319,8 @@ class ApplyMap:
         self.stop_recording()
 
     def get_nodes(self, interest):
-        yield from self._all_node_iter()
-
-    """
         if interest is None:
-            pass
+            yield from self._all_node_iter()
         else:
             if not isinstance(interest, tuple):
                 interest = (interest,)
@@ -347,7 +344,6 @@ class ApplyMap:
                                 yield node
             for int in interest:
                 self.registry[int].stop_recording()
-    """
 
     def _on_add_node(self, event, node):
         if self._recording:
