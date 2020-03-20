@@ -374,7 +374,10 @@ class ApplyMap:
         if node.is_apply():
             self.registry[Apply].remove(node)
             if node.inputs[0].is_constant_graph():
-                self.registry[Graph].remove(node)
+                try:
+                    self.registry[Graph].remove(node)
+                except KeyError:
+                    pass
             elif node.inputs[0].is_constant():
                 self.registry[node.inputs[0].value].remove(node)
 
@@ -392,37 +395,73 @@ class SweepPassOptimizer:
             mng = manage(graph)
 
         amap = ApplyMap(mng)
+        revisit_map = defaultdict(lambda: defaultdict(OrderedSet))
+        _to_del = []
+
+        def _revisit_clean(evt, node):
+            _to_del.append(node)
+
+        mng.events.drop_node.register(_revisit_clean)
+
         changes = False
 
         for opt in self.opt_list:
-            changes |= self.opt_pass(opt, mng, amap)
+            changes |= self.opt_pass(opt, mng, amap, revisit_map)
+            for node in _to_del:
+                revisit_map.pop(node, None)
+            _to_del = []
 
+        mng.events.drop_node.remove(_revisit_clean)
         amap.detach()
         return changes
 
-    def opt_pass(self, opt, mng, amap):
+    def opt_pass(self, opt, mng, amap, revisit_map):
         changes = False
         interest = getattr(opt, 'interest', None)
         for node in amap.get_nodes(interest):
-            args = dict(
-                opt=opt,
-                node=node,
-                manager=mng,
-                profile=False,
-            )
-            with tracer('opt', **args) as tr:
-                tr.set_results(success=False, **args)
-                with About(node.debug, 'opt', opt.name):
-                    new, failed = opt(self.resources, node)
-                if new is True:
-                    changes = True
-                elif new is not None and new is not node:
-                    tracer().emit_match(**args, new_node=new)
-                    mng.replace(node, new)
-                    tracer().emit_success(**args, new_node=new)
-                    tr.set_results(success=True, **args)
-                    changes = True
-                    #self.process_revisits(mng, amap)
+            chg = self.apply_opt(opt, node, mng, revisit_map)
+            changes |= chg
+            revisit_todo = OrderedSet([node])
+            while revisit_todo:
+                node = revisit_todo.pop()
+                if node not in mng.all_nodes:
+                    continue
+                revisits = revisit_map[node]
+                for rnode in list(revisits.keys()):
+                    if rnode not in mng.all_nodes:
+                        del revisits[rnode]
+                        continue
+                    for opt in revisits[rnode]:
+                        if self.apply_opt(opt, rnode, mng, revisit_map):
+                            revisit_todo.add(rnode)
+
+        return changes
+
+    def apply_opt(self, opt, node, mng, revisit_map):
+        args = dict(
+            opt=opt,
+            node=node,
+            manager=mng,
+            profile=False,
+        )
+        changes = False
+        with tracer('opt', **args) as tr:
+            tr.set_results(success=False, **args)
+            with About(node.debug, 'opt', opt.name):
+                new, failed = opt(self.resources, node)
+            if new is True:
+                changes = True
+            elif new is not None and new is not node:
+                tracer().emit_match(**args, new_node=new)
+                mng.replace(node, new)
+                tracer().emit_success(**args, new_node=new)
+                tr.set_results(success=True, **args)
+                changes = True
+            else:
+                for fnode in failed:
+                    if fnode is node:
+                        continue
+                    revisit_map[fnode][node].add(opt)
         return changes
 
 
