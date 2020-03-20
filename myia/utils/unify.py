@@ -15,6 +15,10 @@ FilterT = Union[Iterable, FnFiltT]
 
 class UnificationError(Exception):
     """Exception raised for errors in unification."""
+    def __init__(self, mesg, a=(), b=()):
+        super().__init__(mesg)
+        self.a = a
+        self.b = b
 
 
 _ID = 0
@@ -383,7 +387,8 @@ class Unification:
                 pass
         if len(ok) == 0:
             # if none match we fail
-            raise UnificationError("All values unmatched for UnionVar")
+            raise UnificationError("All values unmatched for UnionVar",
+                                   (w,), (v,))
         elif len(ok) == 1:
             # if there is a single match, we record it as the union value
             equiv.update(ok.popitem()[1])
@@ -414,7 +419,7 @@ class Unification:
             common_diff = reduce(lambda x, v: x & v, common_diffs)
             if len(common_diff) != 1:
                 raise UnificationError("More than one match difference "
-                                       "for UnionVar")
+                                       "for UnionVar", (w,), (v,))
             diff = common_diff.pop()
             assert not isinstance(diff, UnionVar)
 
@@ -440,9 +445,9 @@ class Unification:
 
         Raises:
             UnificationError
-                If the expressions are not compatible.  The dictionary may
-                contain partial matching in this case and should no longer
-                be used for further unification.
+                If the expressions are not compatible. The dictionary
+                may contain partial matching in this case and should
+                no longer be used for further unification.
 
         Note:
             There must not be loops in the equivalence relationships
@@ -471,7 +476,7 @@ class Unification:
             if u is NotImplemented:
                 u = w.intersection(v)
             if u is False:
-                raise UnificationError("Incompatible variables")
+                raise UnificationError("Incompatible variables", (w,), (v,))
             if u is not NotImplemented:
                 assert isinstance(u, Var)
                 if u is not v:
@@ -491,7 +496,7 @@ class Unification:
                 return equiv
 
         if type(v) != type(w):
-            raise UnificationError("Type match error")
+            raise UnificationError("Type match error", (w,), (v,))
 
         if isinstance(v, Seq) and isinstance(w, Seq):
             values_v = list(v)
@@ -527,7 +532,10 @@ class Unification:
 
         if sv != -1 and sw != -1:
             if len(values_v) == len(values_w) and sv == sw:
-                self.unify_raw(values_w[sw], values_v[sv], equiv)
+                try:
+                    equiv = self.unify_raw(values_w[sw], values_v[sv], equiv)
+                except UnificationError as e:
+                    raise UnificationError(e.args[0], (w,) + e.a, (v,) + e.b)
                 values_v.pop(sv)
                 values_w.pop(sw)
             else:
@@ -548,14 +556,17 @@ class Unification:
             values_v = vb + [vm] + ve
 
         if len(values_w) != len(values_v):
-            raise UnificationError("Structures of differing size")
+            raise UnificationError("Structures of differing size", (w,), (v,))
 
-        for wi, vi in zip(values_w, values_v):
-            equiv = self.unify_raw(wi, vi, equiv)
+        try:
+            for wi, vi in zip(values_w, values_v):
+                equiv = self.unify_raw(wi, vi, equiv)
+        except UnificationError as e:
+            raise UnificationError(e.args[0], (w,) + e.a, (v,) + e.b)
 
         return equiv
 
-    def unify(self, w, v, equiv: EquivT = None) -> EquivT:
+    def unify(self, w, v, equiv: EquivT = None, return_failed=False) -> EquivT:
         """Unify two expressions.
 
         After a match is found, this will post-process the dictionary to
@@ -565,6 +576,7 @@ class Unification:
             w: expression
             v: expression
             equiv: Dictionary of pre-existing equivalences.
+            return_failed: Returns the variables that did not match
 
         Returns:
             The equivalence dictionary if a match is found,
@@ -579,8 +591,11 @@ class Unification:
             equiv = {}
         try:
             equiv = self.unify_raw(w, v, equiv)
-        except UnificationError:
-            return None
+        except UnificationError as e:
+            if return_failed:
+                return None, (e.a, e.b)
+            else:
+                return None
 
         # Set all keys to their transitive values
         ks = set(equiv.keys())
@@ -590,7 +605,10 @@ class Unification:
                 k = equiv[k]
                 equiv[init_k] = k
 
-        return equiv
+        if return_failed:
+            return equiv, None
+        else:
+            return equiv
 
     def reify(self, v, equiv: EquivT) -> Any:
         """Fill in a expression according to the equivalences given.

@@ -4,7 +4,7 @@ from collections import deque, defaultdict
 from weakref import WeakKeyDictionary
 
 from ..info import About
-from ..ir import Apply, Graph, manage, sexp_to_node
+from ..ir import Apply, Graph, manage, sexp_to_node, ANFNode
 from ..operations import Primitive
 from ..utils import OrderedSet, tracer
 from ..utils.unify import Unification, Var
@@ -79,14 +79,24 @@ class PatternSubstitutionOptimization:
               variables filled in, if the pattern matches.
 
         """
-        equiv = self.unif.unify(node, self.pattern)
+        equiv, failed = self.unif.unify(node, self.pattern, return_failed=True)
         if equiv is not None:
             if callable(self.replacement):
                 return self.replacement(resources, node, equiv)
-            elif self.condition is None or self.condition(equiv):
-                return self.unif.reify(self.replacement, equiv)
+            if self.condition is None:
+                chk, revisit = True, None
+            else:
+                chk, revisit = self.condition(equiv)
+            if chk:
+                return self.unif.reify(self.replacement, equiv), None
+            else:
+                return None, revisit
         else:
-            return None
+            ft = reversed(failed[0])
+            for fnode in ft:
+                if isinstance(fnode, ANFNode):
+                    break
+            return None, [fnode]
 
     def __str__(self):
         return f'<PatternSubstitutionOptimization {self.name}>'
@@ -220,7 +230,7 @@ class LocalPassOptimizer:
                 with tracer('opt', **args) as tr:
                     tr.set_results(success=False, **args)
                     with About(n.debug, 'opt', transformer.name):
-                        new = transformer(self.resources, n)
+                        new, _ = transformer(self.resources, n)
                     if new is not None and new is not n:
                         tracer().emit_match(**args, new_node=new)
                     if new is True:
@@ -403,7 +413,7 @@ class SweepPassOptimizer:
             with tracer('opt', **args) as tr:
                 tr.set_results(success=False, **args)
                 with About(node.debug, 'opt', opt.name):
-                    new = opt(self.resources, node)
+                    new, failed = opt(self.resources, node)
                 if new is True:
                     changes = True
                 elif new is not None and new is not node:
