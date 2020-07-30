@@ -9,3 +9,5 @@ myia_debug/
 .benchmarks/
 .DS_Store
 /.idea
+target/
+.envrc

@@ -92,3 +92,6 @@ exclude_lines = [
     "NotImplementedError",
     "untested_legacy",
 ]
+
+[build-system]
+requires = ["setuptools", "wheel", "setuptools_rust"]
