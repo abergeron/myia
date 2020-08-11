@@ -1,0 +1,12 @@
+[package]
+name = "myia-graph"
+version = "0.1.0"
+authors = ["Arnaud Bergeron <abergeron@gmail.com>"]
+
+[lib]
+name = "myia_graph"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.11.1", features = ["extension-module"] }
+generational-arena = { version = "0.2.8" }
