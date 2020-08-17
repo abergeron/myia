@@ -1,9 +1,8 @@
 extern crate generational_arena;
 
-use self::generational_arena::Arena;
-use self::generational_arena::Index;
-use std::collections::HashSet;
-use std::collections::HashMap;
+use self::generational_arena::{Arena, Index};
+use std::collections::{HashSet, HashMap};
+use std::any::{Any, TypeId};
 
 struct Graph<'a> {
     parameters: Vec<ANFNodePtr<'a>>,
@@ -19,19 +18,20 @@ pub struct GraphPtr<'a> {
 }
 
 impl<'a> GraphPtr<'a> {
-    pub fn get_output(& self) -> Option<ANFNodePtr<'a>> {
-        let ret = self.manager.graphs[self.p].return_;
+    fn get(&self) -> &Graph {
+        &self.manager.graphs[self.p]
+    }
+
+    pub fn get_output(&'a self) -> Option<ANFNodePtr<'a>> {
+        let ret = self.get().return_;
         ret
     }
-}
-
-enum GraphValueType {
 }
 
 enum ANFNodeType<'a> {
     Apply(Vec<ANFNodePtr<'a>>),
     Parameter,
-    Constant(GraphValueType),
+    Constant(Box<dyn Any>),
 }
 
 struct ANFNode<'a> {
@@ -39,10 +39,90 @@ struct ANFNode<'a> {
     graph: Option<GraphPtr<'a>>
 }
 
+pub struct ANFNodeInputIter<'a> {
+    vals: &'a ANFNodeType<'a>,
+    p: usize
+}
+
+impl<'a> ANFNodeInputIter<'a> {
+    fn new(node: &'a ANFNode<'a>) -> Self {
+        ANFNodeInputIter { vals: &node.node, p: 0 }
+    }
+}
+
+impl<'a> Iterator for ANFNodeInputIter<'a> {
+    type Item = ANFNodePtr<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let ANFNodeType::Apply(inps) = self.vals {
+            let elem = inps.get(self.p);
+            self.p += 1;
+            if let Some(v) = elem {
+                Some(*v)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct ANFNodePtr<'a> {
     p: Index,
     manager: &'a GraphManager<'a>
+}
+
+impl<'a> ANFNodePtr<'a> {
+    fn get(&self) -> &ANFNode {
+        &self.manager.all_nodes[self.p]
+    }
+
+    pub fn incoming(&'a self) -> ANFNodeInputIter<'a> {
+        ANFNodeInputIter::new(self.get())
+    }
+
+    pub fn value(&'a self) -> Option<&'a Box<dyn Any>> {
+        if let ANFNodeType::Constant(v) = &self.get().node {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_apply(&self, value: Option<&dyn Any>) -> bool {
+        if let Some(v) = value {
+            if let ANFNodeType::Apply(inps) = &self.get().node {
+                // If a node has a value, it's a constant
+                if let Some(func) = inps[0].value() {
+                    func.as_ref() as *const _ == v as *const _
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            matches!(&self.get().node, ANFNodeType::Apply(_))
+        }
+    }
+
+    pub fn is_parameter(&self) -> bool {
+        matches!(&self.get().node, ANFNodeType::Parameter)
+    }
+
+    pub fn is_constant(&self, value: Option<TypeId>) -> bool {
+        if let Some(vv) = value {
+            if let ANFNodeType::Constant(v) = &self.get().node {
+                v.type_id() == vv
+            } else {
+                false
+            }
+        } else {
+            matches!(&self.get().node, ANFNodeType::Constant(_))
+        }
+    }
 }
 
 pub struct GraphManager<'a> {
@@ -52,7 +132,7 @@ pub struct GraphManager<'a> {
 }
 
 impl<'a> GraphManager<'a> {
-    pub fn new() -> GraphManager<'a> {
+    pub fn new() -> Self {
         GraphManager { roots: HashSet::<ANFNodePtr<'a>>::new(),
                        all_nodes: Arena::new(),
                        graphs: Arena::new() }
