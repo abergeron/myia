@@ -3,6 +3,7 @@ extern crate generational_arena;
 use self::generational_arena::{Arena, Index};
 use std::collections::{HashSet, HashMap};
 use std::any::{Any, TypeId};
+use std::ptr;
 
 struct Graph<'a> {
     parameters: Vec<ANFNodePtr<'a>>,
@@ -96,7 +97,7 @@ impl<'a> ANFNodePtr<'a> {
             if let ANFNodeType::Apply(inps) = &self.get().node {
                 // If a node has a value, it's a constant
                 if let Some(func) = inps[0].value() {
-                    func.as_ref() as *const _ == v as *const _
+                    ptr::eq(func.as_ref(), v)
                 } else {
                     false
                 }
