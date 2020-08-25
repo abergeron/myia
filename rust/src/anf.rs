@@ -1,9 +1,13 @@
 extern crate generational_arena;
 
 use self::generational_arena::{Arena, Index};
-use std::collections::{HashSet, HashMap};
-use std::any::{Any, TypeId};
-use std::ptr;
+use std::collections::HashSet;
+
+#[derive(Copy, Clone)]
+pub enum Value<'a> {
+    Graph(GraphPtr<'a>),
+    // Other types later
+}
 
 struct Graph<'a> {
     parameters: Vec<ANFNodePtr<'a>>,
@@ -15,7 +19,7 @@ struct Graph<'a> {
 #[derive(Copy, Clone)]
 pub struct GraphPtr<'a> {
     p: Index,
-    manager: &'a GraphManager<'a>
+    manager: &'a GraphManager<'a>,
 }
 
 impl<'a> GraphPtr<'a> {
@@ -23,7 +27,7 @@ impl<'a> GraphPtr<'a> {
         &self.manager.graphs[self.p]
     }
 
-    pub fn get_output(&'a self) -> Option<ANFNodePtr<'a>> {
+    pub fn get_output(&self) -> Option<ANFNodePtr> {
         let ret = self.get().return_;
         ret
     }
@@ -32,22 +36,26 @@ impl<'a> GraphPtr<'a> {
 enum ANFNodeType<'a> {
     Apply(Vec<ANFNodePtr<'a>>),
     Parameter,
-    Constant(Box<dyn Any>),
+    Constant(Value<'a>),
 }
 
 struct ANFNode<'a> {
     node: ANFNodeType<'a>,
-    graph: Option<GraphPtr<'a>>
+    graph: Option<GraphPtr<'a>>,
 }
 
+#[derive(Copy, Clone)]
 pub struct ANFNodeInputIter<'a> {
     vals: &'a ANFNodeType<'a>,
-    p: usize
+    p: usize,
 }
 
 impl<'a> ANFNodeInputIter<'a> {
-    fn new(node: &'a ANFNode<'a>) -> Self {
-        ANFNodeInputIter { vals: &node.node, p: 0 }
+    fn new(node: &'a ANFNode) -> Self {
+        ANFNodeInputIter {
+            vals: &node.node,
+            p: 0,
+        }
     }
 }
 
@@ -72,7 +80,7 @@ impl<'a> Iterator for ANFNodeInputIter<'a> {
 #[derive(Copy, Clone)]
 pub struct ANFNodePtr<'a> {
     p: Index,
-    manager: &'a GraphManager<'a>
+    manager: &'a GraphManager<'a>,
 }
 
 impl<'a> ANFNodePtr<'a> {
@@ -84,45 +92,26 @@ impl<'a> ANFNodePtr<'a> {
         ANFNodeInputIter::new(self.get())
     }
 
-    pub fn value(&'a self) -> Option<&'a Box<dyn Any>> {
-        if let ANFNodeType::Constant(v) = &self.get().node {
-            Some(v)
-        } else {
-            None
+    pub fn value(&'a self) -> Option<Value<'a>> {
+        let n = &self.get().node;
+        match n {
+            ANFNodeType::Constant(v) => Some(*v),
+            _ => None,
         }
     }
 
-    pub fn is_apply(&self, value: Option<&dyn Any>) -> bool {
-        if let Some(v) = value {
-            if let ANFNodeType::Apply(inps) = &self.get().node {
-                // If a node has a value, it's a constant
-                if let Some(func) = inps[0].value() {
-                    ptr::eq(func.as_ref(), v)
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            matches!(&self.get().node, ANFNodeType::Apply(_))
-        }
+    // Maybe value matching later, if needed
+    pub fn is_apply(&self) -> bool {
+        matches!(&self.get().node, ANFNodeType::Apply(_))
     }
 
     pub fn is_parameter(&self) -> bool {
         matches!(&self.get().node, ANFNodeType::Parameter)
     }
 
-    pub fn is_constant(&self, value: Option<TypeId>) -> bool {
-        if let Some(vv) = value {
-            if let ANFNodeType::Constant(v) = &self.get().node {
-                v.type_id() == vv
-            } else {
-                false
-            }
-        } else {
-            matches!(&self.get().node, ANFNodeType::Constant(_))
-        }
+    // Some way to check for type later, if needed
+    pub fn is_constant(&self) -> bool {
+        matches!(&self.get().node, ANFNodeType::Constant(_))
     }
 }
 
@@ -134,21 +123,29 @@ pub struct GraphManager<'a> {
 
 impl<'a> GraphManager<'a> {
     pub fn new() -> Self {
-        GraphManager { roots: HashSet::<ANFNodePtr<'a>>::new(),
-                       all_nodes: Arena::new(),
-                       graphs: Arena::new() }
+        GraphManager {
+            roots: HashSet::<ANFNodePtr<'a>>::new(),
+            all_nodes: Arena::new(),
+            graphs: Arena::new(),
+        }
     }
 
     pub fn new_graph(&mut self) -> GraphPtr {
         let p = Vec::new();
-        let g = self.graphs.insert(Graph { parameters: p, return_: None });
+        let g = self.graphs.insert(Graph {
+            parameters: p,
+            return_: None,
+        });
         let s = &*self;
         GraphPtr { p: g, manager: s }
     }
 
     pub fn alloc_apply(&mut self, params: Vec<ANFNodePtr<'a>>) -> ANFNodePtr {
         let n = ANFNodeType::Apply(params);
-        let a = self.all_nodes.insert(ANFNode { node: n, graph: None });
+        let a = self.all_nodes.insert(ANFNode {
+            node: n,
+            graph: None,
+        });
         let s = &*self;
         ANFNodePtr { p: a, manager: s }
     }
