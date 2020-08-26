@@ -2,6 +2,7 @@ extern crate generational_arena;
 
 use self::generational_arena::{Arena, Index};
 use std::collections::HashSet;
+use std::cell::*;
 
 #[derive(Copy, Clone)]
 pub enum Value<'a> {
@@ -13,6 +14,7 @@ struct Graph<'a> {
     parameters: Vec<ANFNodePtr<'a>>,
     return_: Option<ANFNodePtr<'a>>,
     //debug:
+    //flags:
     //transforms: HashMap<String, GraphPtr>,
 }
 
@@ -23,16 +25,24 @@ pub struct GraphPtr<'a> {
 }
 
 impl<'a> GraphPtr<'a> {
-    fn get(&self) -> &Graph {
-        &self.manager.graphs[self.p]
+    fn get(&self) -> Ref<Graph<'a>> {
+        self.manager.graphs.get(self.p).unwrap().borrow()
     }
 
-    pub fn get_output(&self) -> Option<ANFNodePtr> {
-        let ret = self.get().return_;
-        ret
+    fn get_mut(&mut self) -> RefMut<Graph<'a>> {
+        self.manager.graphs.get(self.p).unwrap().borrow_mut()
+    }
+
+    pub fn get_output(&'a self) -> Option<ANFNodePtr<'a>> {
+        self.get().return_
+    }
+
+    pub fn set_output(&'a mut self, out: ANFNodePtr<'a>) -> () {
+        self.get_mut().return_ = Some(out);
     }
 }
 
+#[derive(Clone)]
 enum ANFNodeType<'a> {
     Apply(Vec<ANFNodePtr<'a>>),
     Parameter,
@@ -44,16 +54,18 @@ struct ANFNode<'a> {
     graph: Option<GraphPtr<'a>>,
 }
 
-#[derive(Copy, Clone)]
 pub struct ANFNodeInputIter<'a> {
-    vals: &'a ANFNodeType<'a>,
+    vals: Vec<ANFNodePtr<'a>>,
     p: usize,
 }
 
 impl<'a> ANFNodeInputIter<'a> {
-    fn new(node: &'a ANFNode) -> Self {
+    fn new(node: Ref<'a, ANFNode<'a>>) -> Self {
         ANFNodeInputIter {
-            vals: &node.node,
+            vals: match &node.node {
+                ANFNodeType::Apply(inps) => inps.clone(),
+                _ => Vec::new(),
+            },
             p: 0,
         }
     }
@@ -63,14 +75,10 @@ impl<'a> Iterator for ANFNodeInputIter<'a> {
     type Item = ANFNodePtr<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let ANFNodeType::Apply(inps) = self.vals {
-            let elem = inps.get(self.p);
-            self.p += 1;
-            if let Some(v) = elem {
-                Some(*v)
-            } else {
-                None
-            }
+        let elem = self.vals.get(self.p);
+        self.p += 1;
+        if let Some(v) = elem {
+            Some(*v)
         } else {
             None
         }
@@ -84,8 +92,8 @@ pub struct ANFNodePtr<'a> {
 }
 
 impl<'a> ANFNodePtr<'a> {
-    fn get(&self) -> &ANFNode {
-        &self.manager.all_nodes[self.p]
+    fn get(&self) -> Ref<ANFNode<'a>> {
+        self.manager.all_nodes.get(self.p).unwrap().borrow()
     }
 
     pub fn incoming(&'a self) -> ANFNodeInputIter<'a> {
@@ -113,12 +121,16 @@ impl<'a> ANFNodePtr<'a> {
     pub fn is_constant(&self) -> bool {
         matches!(&self.get().node, ANFNodeType::Constant(_))
     }
+
+    pub fn is_constant_graph(&self) -> bool {
+        matches!(&self.get().node, ANFNodeType::Constant(Value::Graph(_)))
+    }
 }
 
 pub struct GraphManager<'a> {
     roots: HashSet<ANFNodePtr<'a>>,
-    all_nodes: Arena<ANFNode<'a>>,
-    graphs: Arena<Graph<'a>>,
+    all_nodes: Arena<RefCell<ANFNode<'a>>>,
+    graphs: Arena<RefCell<Graph<'a>>>,
 }
 
 impl<'a> GraphManager<'a> {
@@ -130,22 +142,22 @@ impl<'a> GraphManager<'a> {
         }
     }
 
-    pub fn new_graph(&mut self) -> GraphPtr {
+    pub fn new_graph(&'a mut self) -> GraphPtr<'a> {
         let p = Vec::new();
-        let g = self.graphs.insert(Graph {
+        let g = self.graphs.insert(RefCell::new(Graph {
             parameters: p,
             return_: None,
-        });
+        }));
         let s = &*self;
         GraphPtr { p: g, manager: s }
     }
 
-    pub fn alloc_apply(&mut self, params: Vec<ANFNodePtr<'a>>) -> ANFNodePtr {
+    pub fn alloc_apply(&'a mut self, params: Vec<ANFNodePtr<'a>>) -> ANFNodePtr<'a> {
         let n = ANFNodeType::Apply(params);
-        let a = self.all_nodes.insert(ANFNode {
+        let a = self.all_nodes.insert(RefCell::new(ANFNode {
             node: n,
             graph: None,
-        });
+        }));
         let s = &*self;
         ANFNodePtr { p: a, manager: s }
     }
