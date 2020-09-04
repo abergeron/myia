@@ -25,20 +25,38 @@ pub struct GraphPtr<'a> {
 }
 
 impl<'a> GraphPtr<'a> {
-    fn get(&self) -> Ref<Graph<'a>> {
-        self.manager.graphs.get(self.p).unwrap().borrow()
+    unsafe fn get(&self) -> Ref<Graph<'a>> {
+        // Still unsafe as we return a sub-ref
+        self.manager.get_graph(self.p).borrow()
     }
 
-    fn get_mut(&mut self) -> RefMut<Graph<'a>> {
-        self.manager.graphs.get(self.p).unwrap().borrow_mut()
+    unsafe fn get_mut(&self) -> RefMut<Graph<'a>> {
+        // Still unsafe as we return a sub-ref
+        self.manager.get_graph(self.p).borrow_mut()
     }
 
-    pub fn get_output(&'a self) -> Option<ANFNodePtr<'a>> {
-        self.get().return_
+    pub fn get_output(&self) -> Option<ANFNodePtr<'a>> {
+        unsafe {
+            // This is safe because we don't keep the ref
+            self.get().return_
+        }
     }
 
-    pub fn set_output(&'a mut self, out: ANFNodePtr<'a>) -> () {
-        self.get_mut().return_ = Some(out);
+    pub fn set_output(&self, out: ANFNodePtr<'a>) -> () {
+        // We will see about having an Apply here.
+        unsafe {
+            // This is safe because we don't keep the ref
+            self.get_mut().return_ = Some(out);
+        }
+    }
+
+    pub fn add_parameter(&self) -> ANFNodePtr<'a> {
+        let newp = self.manager.alloc_param(*self);
+        unsafe {
+            // This is safe because we don't keep the ref
+            self.get_mut().parameters.push(newp);
+        }
+        newp
     }
 }
 
@@ -61,6 +79,7 @@ pub struct ANFNodeInputIter<'a> {
 
 impl<'a> ANFNodeInputIter<'a> {
     fn new(node: Ref<'a, ANFNode<'a>>) -> Self {
+        // SAFETY: Make sure that no ref to the passed-in node is kept
         ANFNodeInputIter {
             vals: match &node.node {
                 ANFNodeType::Apply(inps) => inps.clone(),
@@ -92,16 +111,21 @@ pub struct ANFNodePtr<'a> {
 }
 
 impl<'a> ANFNodePtr<'a> {
-    fn get(&self) -> Ref<ANFNode<'a>> {
-        self.manager.all_nodes.get(self.p).unwrap().borrow()
+    unsafe fn get(&self) -> Ref<ANFNode<'a>> {
+        // Still unsafe as we return a sub-ref
+        self.manager.get_node(self.p).borrow()
     }
 
     pub fn incoming(&'a self) -> ANFNodeInputIter<'a> {
-        ANFNodeInputIter::new(self.get())
+        unsafe {
+            // This is safe because ANFNodeInputIter doesn't keep a ref
+            ANFNodeInputIter::new(self.get())
+        }
     }
 
     pub fn value(&'a self) -> Option<Value<'a>> {
-        let n = &self.get().node;
+        // This is safe because we don't keep the ref
+        let n = unsafe { &self.get().node };
         match n {
             ANFNodeType::Constant(v) => Some(*v),
             _ => None,
@@ -110,55 +134,77 @@ impl<'a> ANFNodePtr<'a> {
 
     // Maybe value matching later, if needed
     pub fn is_apply(&self) -> bool {
-        matches!(&self.get().node, ANFNodeType::Apply(_))
+        matches!(unsafe { &self.get().node }, ANFNodeType::Apply(_))
     }
 
     pub fn is_parameter(&self) -> bool {
-        matches!(&self.get().node, ANFNodeType::Parameter)
+        matches!(unsafe { &self.get().node }, ANFNodeType::Parameter)
     }
 
     // Some way to check for type later, if needed
     pub fn is_constant(&self) -> bool {
-        matches!(&self.get().node, ANFNodeType::Constant(_))
+        matches!(unsafe { &self.get().node }, ANFNodeType::Constant(_))
     }
 
     pub fn is_constant_graph(&self) -> bool {
-        matches!(&self.get().node, ANFNodeType::Constant(Value::Graph(_)))
+        matches!(unsafe { &self.get().node }, ANFNodeType::Constant(Value::Graph(_)))
     }
 }
 
 pub struct GraphManager<'a> {
     roots: HashSet<ANFNodePtr<'a>>,
-    all_nodes: Arena<RefCell<ANFNode<'a>>>,
-    graphs: Arena<RefCell<Graph<'a>>>,
+    all_nodes: Cell<Arena<RefCell<ANFNode<'a>>>>,
+    graphs: Cell<Arena<RefCell<Graph<'a>>>>,
 }
 
 impl<'a> GraphManager<'a> {
     pub fn new() -> Self {
         GraphManager {
             roots: HashSet::<ANFNodePtr<'a>>::new(),
-            all_nodes: Arena::new(),
-            graphs: Arena::new(),
+            all_nodes: Cell::new(Arena::new()),
+            graphs: Cell::new(Arena::new()),
         }
     }
 
-    pub fn new_graph(&'a mut self) -> GraphPtr<'a> {
-        let p = Vec::new();
-        let g = self.graphs.insert(RefCell::new(Graph {
-            parameters: p,
-            return_: None,
-        }));
-        let s = &*self;
-        GraphPtr { p: g, manager: s }
+    // You can't allocate new graphs while the returned reference is alive
+    unsafe fn get_graph(&self, p: Index) -> &RefCell<Graph<'a>> {
+        (*self.graphs.as_ptr()).get(p).unwrap()
     }
 
-    pub fn alloc_apply(&'a mut self, params: Vec<ANFNodePtr<'a>>) -> ANFNodePtr<'a> {
-        let n = ANFNodeType::Apply(params);
-        let a = self.all_nodes.insert(RefCell::new(ANFNode {
-            node: n,
-            graph: None,
+    // You can't allocate new nodes while the returned reference is alive
+    unsafe fn get_node(&self, p: Index) -> &RefCell<ANFNode<'a>> {
+        (*self.all_nodes.as_ptr()).get(p).unwrap()
+    }
+
+    pub fn new_graph(&'a self) -> GraphPtr<'a> {
+        let p = Vec::new();
+        // This method is safe becase we don't return the ref
+        let gs = unsafe { &mut *self.graphs.as_ptr() };
+        let g = gs.insert(RefCell::new(Graph {
+                parameters: p,
+                return_: None,
         }));
-        let s = &*self;
-        ANFNodePtr { p: a, manager: s }
+        GraphPtr { p: g, manager: self }
+    }
+
+    pub fn alloc_apply(&'a self, params: Vec<ANFNodePtr<'a>>, graph: Option<GraphPtr<'a>>) -> ANFNodePtr<'a> {
+        let n = ANFNodeType::Apply(params);
+        // This method is safe becase we don't return the ref
+        let an = unsafe { &mut *self.all_nodes.as_ptr() };
+        let a = an.insert(RefCell::new(ANFNode {
+            node: n,
+            graph: graph,
+        }));
+        ANFNodePtr { p: a, manager: self }
+    }
+
+    fn alloc_param(&'a self, graph: GraphPtr<'a>) -> ANFNodePtr<'a> {
+        // This method is safe becase we don't return the ref
+        let an = unsafe { &mut *self.all_nodes.as_ptr() };
+        let a = an.insert(RefCell::new(ANFNode {
+            node: ANFNodeType::Parameter,
+            graph: Some(graph),
+        }));
+        ANFNodePtr { p: a, manager: self }
     }
 }
