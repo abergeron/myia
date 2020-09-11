@@ -51,6 +51,18 @@ def test_increment(backend):
 
 
 @bt(G.universe_operations)
+def test_increment(backend):
+    @_umyia(backend)
+    def fn(x):
+        i = x
+        while i > 0:
+            i = 0
+        return x
+
+    assert fn(0) == 2
+
+
+@bt(G.universe_operations)
 def test_increment_interleave(backend):
     @_umyia(backend)
     def plus2(x, y):
