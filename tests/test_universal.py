@@ -51,7 +51,7 @@ def test_increment(backend):
 
 
 @bt(G.universe_operations)
-def test_increment(backend):
+def test_simple(backend):
     @_umyia(backend)
     def fn(x):
         i = x
@@ -59,7 +59,7 @@ def test_increment(backend):
             i = 0
         return x
 
-    assert fn(0) == 2
+    assert fn(1) == 1
 
 
 @bt(G.universe_operations)
