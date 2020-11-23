@@ -3,6 +3,7 @@
 from .. import lib, xtype
 from ..lib import broaden, standard_prim
 from . import primitives as P
+from myia.abstract.data import AbstractCast
 
 
 def pyimpl_universe_getitem(universe, handle):
@@ -15,7 +16,10 @@ async def infer_universe_getitem(
     self, engine, universe: xtype.UniverseType, handle: lib.AbstractHandle
 ):
     """Infer the return type of primitive `universe_getitem`."""
-    return broaden(handle.element)
+    elem = handle.element
+    if isinstance(elem, AbstractCast):
+        elem = elem.element
+    return broaden(elem)
 
 
 __operation_defaults__ = {

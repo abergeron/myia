@@ -3,7 +3,9 @@
 from collections import defaultdict
 from functools import reduce
 from itertools import product
+from ovld import ovld
 
+from myia.abstract.data import AbstractWrapper, AbstractValue, AbstractCast
 from .. import lib
 from ..lib import (
     ANYTHING,
@@ -51,7 +53,100 @@ class _CastRemapper(CloneRemapper):
             self.remap_node((g, fv), g, fv, ng, new, link=False)
 
 
-async def make_trials(engine, ref, repl):
+@ovld.dispatch(initial_state=lambda: dict())
+def constains_union(self, x):
+    __call__ = self.resolve(x)
+    cache = self.state
+
+    try:
+        res = cache.get(x, None)
+    except TypeError:
+        return __call__(x)
+
+    if res is None:
+        cache[x] = set()
+        cache[x] = __call__(x)
+        return cache[x]
+
+    return res
+
+
+@ovld # noqa: F811
+def contains_union(self, x: lib.AbstractUnion):
+    return set([x])
+
+
+@ovld # noqa: F811
+def contains_union(self, x: AbstractWrapper):
+    return set.union(*[self(c) for c in x.children()])
+
+
+@ovld # noqa: F811
+def contains_union(self, x: AbstractValue):
+    return set()
+
+
+@lib.abstract_clone.variant
+def _get_type(self, x: lib.AbstractUnion, *, u, opt):
+    if x is u:
+        yield None
+        return self(opt, u=u, opt=opt)
+    else:
+        return (yield lib.AbstractUnion)(self(x.options, u=u, opt=opt))
+
+
+@ovld.dispatch(initial_state=lambda: {'cache': dict()})
+def getrepl(self, node, typ, ntyp):
+    cache = self.cache
+    try:
+        return cache[node]
+    except KeyError:
+        call = self.resolve(node, typ, ntyp)
+        rval = call(node, typ, ntyp)
+        cache[node] = rval
+        return rval
+
+
+@ovld
+def getrepl(self, node, typ: object, ntyp):
+    return node
+
+
+@ovld
+def getrepl(self, node, typ: AbstractWrapper, ntyp):
+    # We should never get here
+    assert False
+
+
+@ovld
+def getrepl(self, node, typ: lib.AbstractUnion, ntyp):
+    if typ is not ntyp:
+        g = node.graph
+        return g.apply(P.unsafe_static_cast, node, ntyp)
+    else:
+        return node
+
+
+@ovld
+def getrepl(self, node, typ: lib.AbstractTuple, ntyp):
+    g = node.graph
+    rval = node
+    for i, (e, n) in enumerate(zip(typ.elements, ntyp.elements)):
+        elem = g.apply(P.tuple_getitem, node, i)
+        res = self(elem, e, n)
+        if elem is not res:
+            rval = g.apply(P.tuple_setitem, rval, i, res)
+    return rval
+
+
+@ovld
+def getrepl(self, node, typ: lib.AbstractHandle, ntyp):
+    g = node.graph
+    ntyp2 = lib.AbstractHandle(AbstractCast(ntyp.element), values=ntyp.values)
+    return g.apply(P.unsafe_static_cast, node, ntyp2)
+
+
+async def make_trials(engine, ref, repl, relevant):
     """Return a collection of alternative subtrees to test type combinations.
 
     The subtree for ref.node is explored, and for every Union encountered we
@@ -91,29 +186,27 @@ async def make_trials(engine, ref, repl):
             res[frozenset(s)] = finalize(nodes)
         return res
 
-    def getrepl(node, opt):
-        # Returns cast(node, opt) and caches it.
-        key = (node, opt)
-        if key not in repl:
-            repl[key] = g.apply(P.unsafe_static_cast, node, opt)
-        return repl[key]
-
     node = ref.node
     g = node.graph
-    typ = await ref.get()
 
-    if isinstance(typ, lib.AbstractUnion):
-        # Return one entry for each possible type.
-        return {
-            frozenset({(node, opt)}): getrepl(node, opt)
-            for opt in (await force_pending(typ.options))
-        }
+    if ref.node in relevant:
+        typ = await ref.get()
 
-    elif ref.node.is_apply():
+        res = contains_union(typ)
+        if len(res) != 0:
+            rval = dict()
+            for u in res:
+                for opt in (await force_pending(u.options)):
+                    ntyp = _get_type(typ, u=u, opt=opt)
+                    rval[frozenset({(node, ntyp)})] = getrepl(node, typ, ntyp)
+            return rval
+
+    if ref.node.is_apply():
         # Return the cartesian product of the entries for each argument.
         arg_results = [
             (
-                await make_trials(engine, engine.ref(arg, ref.context), repl)
+                await make_trials(engine, engine.ref(arg, ref.context), repl,
+                                  relevant)
             ).items()
             for arg in ref.node.inputs
         ]
@@ -145,7 +238,7 @@ async def make_trials(engine, ref, repl):
                     fvs += fv.free_variables_total
                     continue
                 trial = await make_trials(
-                    engine, engine.ref(fv, ref.context), repl
+                    engine, engine.ref(fv, ref.context), repl, relevant
                 )
                 trials.append(trial.items())
             res = {}
@@ -290,7 +383,9 @@ async def user_switch(info, condref, tbref, fbref):
 
     if orig_cond.graph is not None and cond.is_apply():
         new_condref = engine.ref(cond, condref.context)
-        cond_trials = await make_trials(engine, new_condref, {})
+        relevant = (tbref.node.value.free_variables_total.keys() |
+                    fbref.node.value.free_variables_total.keys())
+        cond_trials = await make_trials(engine, new_condref, {}, relevant)
         if len(cond_trials) > 1:
             return await execute_trials(
                 engine, cond_trials, g, new_condref, tbref, fbref
