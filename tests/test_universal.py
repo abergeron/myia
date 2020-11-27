@@ -109,6 +109,18 @@ def test_increment_recursion(backend):
 
 
 @bt(G.universe_operations)
+def test_universe_tuple(backend):
+    @_umyia(backend)
+    def tt(a):
+        t = (a.tail, 0)
+        if not isinstance(t[0], Empty):
+            return t[0].tail
+        return t[0]
+
+    assert tt([1, 2, 3]) == [3]
+
+
+@bt(G.universe_operations)
 def test_give_handle(backend):
     @_umyia(backend)
     def plus(h, y):
