@@ -90,7 +90,7 @@ def contains_union(self, x: AbstractValue):
 def _get_type(self, x: lib.AbstractUnion, *, u, opt):
     if x is u:
         yield None
-        return self(opt, u=u, opt=opt)
+        return opt
     else:
         return (yield lib.AbstractUnion)(self(x.options, u=u, opt=opt))
 
