@@ -13,7 +13,7 @@ from myia.compile.transform import convert_grad, get_prim_graph
 from myia.debug.label import NodeLabeler
 from myia.graph_utils import toposort
 from myia.ir import Graph, manage
-from myia.lib import ANYTHING, AbstractArray, AbstractTuple
+from myia.lib import ANYTHING, AbstractArray, AbstractTuple, AbstractHandle
 from myia.operations import Primitive, primitives as P
 from myia.xtype import type_to_np_dtype
 
@@ -443,6 +443,9 @@ class PythonConstantConverter(_PythonConverter):
     def convert_type(self, v, t):
         myia_type = t.element.xtype()
         # Return type name as a string.
+        if myia_type is None:
+            if isinstance(v, AbstractHandle):
+                return "HandleInstance"
         return f"'{type_to_np_dtype(myia_type)}'"
 
     def convert_handle(self, v, t):
