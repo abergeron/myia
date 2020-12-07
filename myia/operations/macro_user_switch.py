@@ -243,7 +243,10 @@ async def make_trials(engine, ref, repl, relevant):
                 trials.append(trial.items())
             res = {}
             for entry in prod(trials, lambda _: None):
-                fv_repl = {node: getrepl(node, opt) for node, opt in entry}
+                fv_repl = dict()
+                for node, opt in entry:
+                    typ = await engine.ref(node, ref.context).get()
+                    fv_repl[node] = getrepl(node, typ, opt)
                 # NOTE: total=True may be overkill here, but the alternative is
                 # to collect siblings of g that g may refer to, which is what's
                 # done in the wrap function below.
