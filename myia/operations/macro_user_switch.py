@@ -5,7 +5,8 @@ from functools import reduce
 from itertools import product
 from ovld import ovld
 
-from myia.abstract.data import AbstractWrapper, AbstractValue, AbstractCast
+from myia.abstract.data import AbstractWrapper, AbstractValue, AbstractCast, AbstractStructure
+
 from .. import lib
 from ..lib import (
     ANYTHING,
@@ -53,10 +54,10 @@ class _CastRemapper(CloneRemapper):
             self.remap_node((g, fv), g, fv, ng, new, link=False)
 
 
-@ovld.dispatch(initial_state=lambda: dict())
-def constains_union(self, x):
+@ovld.dispatch(initial_state=lambda: {'cache': dict()})
+def contains_union(self, x):
     __call__ = self.resolve(x)
-    cache = self.state
+    cache = self.cache
 
     try:
         res = cache.get(x, None)
@@ -77,7 +78,7 @@ def contains_union(self, x: lib.AbstractUnion):
 
 
 @ovld # noqa: F811
-def contains_union(self, x: AbstractWrapper):
+def contains_union(self, x: (AbstractWrapper, AbstractStructure)):
     return set.union(*[self(c) for c in x.children()])
 
 
