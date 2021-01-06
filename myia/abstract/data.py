@@ -653,6 +653,7 @@ class AbstractCast(AbstractWrapper):
     This is for cases where you need to mark that a value was casted,
     don't use this for normal casts.
     """
+
     def __init__(self, element, values={}):
         """Initialize an AbstractCast."""
         super().__init__(element, values)

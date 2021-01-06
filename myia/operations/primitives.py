@@ -12,7 +12,12 @@ subclass.
 # The script will search for all primitives it can find in myia.operations    #
 ###############################################################################
 
-from .utils import BackendPrimitive, InferencePrimitive, PlaceholderPrimitive
+from .utils import (
+    BackendPrimitive,
+    CompositePrimitive,
+    InferencePrimitive,
+    PlaceholderPrimitive,
+)
 
 J = PlaceholderPrimitive(name="J", defaults="myia.operations.prim_J")
 

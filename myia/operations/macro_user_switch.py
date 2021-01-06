@@ -5,7 +5,12 @@ from functools import reduce
 from itertools import product
 from ovld import ovld
 
-from myia.abstract.data import AbstractWrapper, AbstractValue, AbstractCast, AbstractStructure
+from myia.abstract.data import (
+    AbstractWrapper,
+    AbstractValue,
+    AbstractCast,
+    AbstractStructure,
+)
 
 from .. import lib
 from ..lib import (
@@ -54,7 +59,7 @@ class _CastRemapper(CloneRemapper):
             self.remap_node((g, fv), g, fv, ng, new, link=False)
 
 
-@ovld.dispatch(initial_state=lambda: {'cache': dict()})
+@ovld.dispatch(initial_state=lambda: {"cache": dict()})
 def contains_union(self, x):
     __call__ = self.resolve(x)
     cache = self.cache
@@ -72,17 +77,17 @@ def contains_union(self, x):
     return res
 
 
-@ovld # noqa: F811
+@ovld  # noqa: F811
 def contains_union(self, x: lib.AbstractUnion):
     return set([x])
 
 
-@ovld # noqa: F811
+@ovld  # noqa: F811
 def contains_union(self, x: (AbstractWrapper, AbstractStructure)):
     return set.union(*[self(c) for c in x.children()])
 
 
-@ovld # noqa: F811
+@ovld  # noqa: F811
 def contains_union(self, x: AbstractValue):
     return set()
 
@@ -96,7 +101,7 @@ def _get_type(self, x: lib.AbstractUnion, *, u, opt):
         return (yield lib.AbstractUnion)(self(x.options, u=u, opt=opt))
 
 
-@ovld.dispatch(initial_state=lambda: {'cache': dict()})
+@ovld.dispatch(initial_state=lambda: {"cache": dict()})
 def getrepl(self, node, typ, ntyp):
     cache = self.cache
     try:
@@ -143,8 +148,10 @@ def getrepl(self, node, typ: lib.AbstractTuple, ntyp):
 @ovld
 def getrepl(self, node, typ: lib.AbstractHandle, ntyp):
     g = node.graph
-    ntyp2 = lib.AbstractHandle(AbstractCast(ntyp.element), values=ntyp.values)
-    return g.apply(P.unsafe_static_cast, node, ntyp2)
+    if typ is not ntyp:
+        return g.apply(P.cast_handle, node, AbstractCast(ntyp.element))
+    else:
+        return node
 
 
 async def make_trials(engine, ref, repl, relevant):
@@ -206,8 +213,9 @@ async def make_trials(engine, ref, repl, relevant):
         # Return the cartesian product of the entries for each argument.
         arg_results = [
             (
-                await make_trials(engine, engine.ref(arg, ref.context), repl,
-                                  relevant)
+                await make_trials(
+                    engine, engine.ref(arg, ref.context), repl, relevant
+                )
             ).items()
             for arg in ref.node.inputs
         ]
@@ -387,8 +395,10 @@ async def user_switch(info, condref, tbref, fbref):
 
     if orig_cond.graph is not None and cond.is_apply():
         new_condref = engine.ref(cond, condref.context)
-        relevant = (tbref.node.value.free_variables_total.keys() |
-                    fbref.node.value.free_variables_total.keys())
+        relevant = (
+            tbref.node.value.free_variables_total.keys()
+            | fbref.node.value.free_variables_total.keys()
+        )
         cond_trials = await make_trials(engine, new_condref, {}, relevant)
         if len(cond_trials) > 1:
             return await execute_trials(

@@ -1,10 +1,18 @@
 """Definitions for the primitive `universe_setitem`."""
 
 from .. import lib, xtype
-from ..lib import ANYTHING, TYPE, VALUE, AbstractScalar, standard_prim, StandardInferrer
+from ..lib import (
+    ANYTHING,
+    TYPE,
+    VALUE,
+    AbstractScalar,
+    standard_prim,
+    StandardInferrer,
+)
 from . import primitives as P
 from myia.abstract.data import AbstractCast
 from .macro_user_switch import getrepl
+
 
 def pyimpl_universe_setitem(universe, handle, value):
     """Implement `universe_setitem`."""
@@ -13,7 +21,6 @@ def pyimpl_universe_setitem(universe, handle, value):
 
 @standard_prim(P.universe_setitem)
 class _UniverseSetitemInferrer(StandardInferrer):
-
     def __init__(self):
         super().__init__(P.universe_setitem, self.__infer)
 
@@ -29,32 +36,32 @@ class _UniverseSetitemInferrer(StandardInferrer):
 
         if isinstance(h_t.element, AbstractCast):
             v_t = await argrefs[2].get()
-            assert isinstance(v_t, lib.AbstractUnion)
             g = outref.node.graph
             return engine.ref(
-                g.apply(P.universe_setitem,
-                        argrefs[0].node,
-                        g.apply(P.unsafe_static_cast,
-                                argrefs[1].node,
-                                lib.AbstractHandle(h_t.element.element,
-                                                  values=h_t.values)),
-
-                        # This might insert the casts and whatnot in the
-                        # wrong graph (not outref.node.graph,
-                        # but argrefs[2].node.graph).
-                        # I'm not sure it's a huge problem.
-                        getrepl(argrefs[2].node, v_t, h_t.element.element)),
-                outref.context)
+                g.apply(
+                    P.universe_setitem,
+                    argrefs[0].node,
+                    g.apply(
+                        P.cast_handle, argrefs[1].node, h_t.element.element
+                    ),
+                    # This might insert the casts and whatnot in the
+                    # wrong graph (not outref.node.graph,
+                    # but argrefs[2].node.graph).
+                    # I'm not sure it's a huge problem.
+                    getrepl(argrefs[2].node, v_t, h_t.element.element),
+                ),
+                outref.context,
+            )
 
         return None
 
     @staticmethod
     async def __infer(
-            self,
-            engine,
-            universe: xtype.UniverseType,
-            handle: lib.AbstractHandle,
-            value,
+        self,
+        engine,
+        universe: xtype.UniverseType,
+        handle: lib.AbstractHandle,
+        value,
     ):
         """Infer the return type of primitive `universe_setitem`."""
         engine.abstract_merge(handle.element, value)
