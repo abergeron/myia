@@ -192,6 +192,10 @@ call_object = Operation(
     name="call_object", defaults="myia.operations.macro_call_object"
 )
 
+cast_handle = Operation(
+    name="cast_handle", defaults="myia.operations.prim_cast_handle"
+)
+
 casttag = Operation(name="casttag", defaults="myia.operations.prim_casttag")
 
 cell_get = Operation(

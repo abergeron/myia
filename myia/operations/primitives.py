@@ -77,6 +77,10 @@ broadcast_shape = BackendPrimitive(
     name="broadcast_shape", defaults="myia.operations.prim_broadcast_shape"
 )
 
+cast_handle = InferencePrimitive(
+    name="cast_handle", defaults="myia.operations.prim_cast_handle"
+)
+
 casttag = BackendPrimitive(
     name="casttag", defaults="myia.operations.prim_casttag"
 )
