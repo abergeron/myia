@@ -300,7 +300,10 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
                 continue
             nomod = False
             children.update(node.graph.children)
-            cast = rval.apply(P.unsafe_static_cast, node, typ)
+            # This is a bit of a hack, but we need that type.
+            otyp = await engine.ref(node, branch_ref.context).get()
+            #cast = rval.apply(P.unsafe_static_cast, node, typ)
+            cast = getrepl(node, otyp, typ)
             fv_repl[node] = cast
 
         if nomod:
