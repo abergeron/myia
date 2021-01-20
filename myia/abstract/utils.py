@@ -331,8 +331,9 @@ def abstract_clone(self, x: AbstractWrapper, **kwargs):
 
 @ovld  # noqa: F811
 def abstract_clone(self, x: AbstractCast, **kwargs):
-    return (yield AbstractCast)(x.old, self(x.element, **kwargs),
-                                self(x.values, **kwargs))
+    return (yield AbstractCast)(
+        x.old, self(x.element, **kwargs), self(x.values, **kwargs)
+    )
 
 
 @ovld  # noqa: F811

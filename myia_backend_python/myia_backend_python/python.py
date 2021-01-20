@@ -13,7 +13,14 @@ from myia.compile.transform import convert_grad, get_prim_graph
 from myia.debug.label import NodeLabeler
 from myia.graph_utils import toposort
 from myia.ir import Graph, manage
-from myia.lib import ANYTHING, AbstractArray, AbstractTuple, AbstractHandle, AbstractFunction, AbstractScalar
+from myia.lib import (
+    ANYTHING,
+    AbstractArray,
+    AbstractTuple,
+    AbstractHandle,
+    AbstractFunction,
+    AbstractScalar,
+)
 from myia.operations import Primitive, primitives as P
 from myia.xtype import type_to_np_dtype
 

@@ -117,28 +117,6 @@ def test_universe_tuple(backend):
             return t[0].tail
         return tagged(t[0])
 
-    @_umyia(backend)
-    def t1(a):
-        t = (a.tail, 0)
-        return t
-
-    @_umyia(backend)
-    def t2(a):
-        t = (a.tail, 0)
-        return not isinstance(t[0], Empty)
-
-    @_umyia(backend)
-    def t3(a):
-        t = (a.tail, 0)
-        if not isinstance(t[0], Empty):
-            return True
-        return False
-
-    #assert t1([1, 2, 3]) == ([2, 3], 0)
-    #assert t2([1, 2, 3]) == True
-    #assert t2([1]) == False
-    #assert t3([1, 2, 3]) == True
-    #assert t3([1]) == False
     assert tt([1, 2, 3]) == [3]
 
 

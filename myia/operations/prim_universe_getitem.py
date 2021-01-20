@@ -6,6 +6,7 @@ from . import primitives as P
 from myia.abstract.data import AbstractCast
 from .macro_user_switch import getrepl
 
+
 def pyimpl_universe_getitem(universe, handle):
     """Implement `universe_getitem`."""
     return universe.get(handle)
@@ -29,20 +30,20 @@ class _UniverseGetitemInferrer(StandardInferrer):
         if isinstance(h_t.element, AbstractCast):
             o_t = h_t.element.old
             g = outref.node.graph
-            node = g.apply(P.universe_getitem,
-                           argrefs[0].node,
-                           g.apply(P.cast_handle,
-                                   argrefs[1].node,
-                                   o_t))
-            return engine.ref(getrepl(node, o_t, h_t.element.element),
-                              outref.context)
+            node = g.apply(
+                P.universe_getitem,
+                argrefs[0].node,
+                g.apply(P.cast_handle, argrefs[1].node, o_t),
+            )
+            return engine.ref(
+                getrepl(node, o_t, h_t.element.element), outref.context
+            )
 
         return None
 
     @staticmethod
     async def __infer(
-            self, engine, universe: xtype.UniverseType,
-            handle: lib.AbstractHandle
+        self, engine, universe: xtype.UniverseType, handle: lib.AbstractHandle
     ):
         """Infer the return type of primitive `universe_getitem`."""
         return broaden(handle.element)

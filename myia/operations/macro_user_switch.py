@@ -149,7 +149,9 @@ def getrepl(self, node, typ: lib.AbstractTuple, ntyp):
 def getrepl(self, node, typ: lib.AbstractHandle, ntyp):
     g = node.graph
     if typ is not ntyp:
-        return g.apply(P.cast_handle, node, AbstractCast(typ.element, ntyp.element))
+        return g.apply(
+            P.cast_handle, node, AbstractCast(typ.element, ntyp.element)
+        )
     else:
         return node
 
@@ -204,7 +206,7 @@ async def make_trials(engine, ref, repl, relevant):
         if len(res) != 0:
             rval = dict()
             for u in res:
-                for opt in (await force_pending(u.options)):
+                for opt in await force_pending(u.options):
                     ntyp = _get_type(typ, u=u, opt=opt)
                     rval[frozenset({(node, ntyp)})] = getrepl(node, typ, ntyp)
             return rval
@@ -302,7 +304,6 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
             children.update(node.graph.children)
             # This is a bit of a hack, but we need that type.
             otyp = await engine.ref(node, branch_ref.context).get()
-            #cast = rval.apply(P.unsafe_static_cast, node, typ)
             cast = getrepl(node, otyp, typ)
             fv_repl[node] = cast
 
