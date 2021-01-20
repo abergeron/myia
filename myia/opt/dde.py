@@ -358,7 +358,7 @@ def _vprop_array_operation(vprop, need, inputs, out):
     vprop.add_value(out, need, ANYTHING)
 
 
-@regvprop(P.casttag, P.tagged, P.unsafe_static_cast)
+@regvprop(P.casttag, P.tagged, P.unsafe_static_cast, P.cast_handle)
 def _vprop_cast_operation(vprop, need, inputs, out):
     arg, tag = inputs
     vprop.add_need(tag, ANYTHING)

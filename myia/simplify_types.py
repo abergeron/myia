@@ -32,6 +32,7 @@ from .abstract import (
     type_to_abstract,
     typecheck,
 )
+from .abstract.data import AbstractCast
 from .classes import Cons, Empty
 from .compile import BackendValue
 from .ir import Constant
@@ -107,6 +108,12 @@ def _reabs(self, a: AbstractUnion):
     return (yield AbstractTaggedUnion)(
         [type_to_tag(opt), self(opt)] for opt in a.options
     )
+
+
+@ovld  # noqa: F811
+def _reabs(self, a: AbstractCast):
+    yield None
+    return self(a.old)
 
 
 @ovld  # noqa: F811
@@ -222,6 +229,9 @@ def simplify_types(root, manager):
             else:
                 tag = type_to_tag(typ.value)
                 new_node = node.graph.apply(P.casttag, x, _mkct(tag))
+
+        elif node.is_apply(P.cast_handle):
+            new_node = node.inputs[1]
 
         elif node.is_apply(P.tagged):
             # tagged(x) -> tagged(x, tag)
