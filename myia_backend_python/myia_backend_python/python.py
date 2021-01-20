@@ -13,7 +13,7 @@ from myia.compile.transform import convert_grad, get_prim_graph
 from myia.debug.label import NodeLabeler
 from myia.graph_utils import toposort
 from myia.ir import Graph, manage
-from myia.lib import ANYTHING, AbstractArray, AbstractTuple, AbstractHandle
+from myia.lib import ANYTHING, AbstractArray, AbstractTuple, AbstractHandle, AbstractFunction
 from myia.operations import Primitive, primitives as P
 from myia.xtype import type_to_np_dtype
 
@@ -441,12 +441,17 @@ class PythonConstantConverter(_PythonConverter):
         return "()"
 
     def convert_type(self, v, t):
-        myia_type = t.element.xtype()
-        # Return type name as a string.
-        if myia_type is None:
-            if isinstance(v, AbstractHandle):
-                return "HandleInstance"
-        return f"'{type_to_np_dtype(myia_type)}'"
+        """Return the python type as a string"""
+        tt = t.element
+        #if isinstance(tt, AbstractScalar):
+        #    f"'{type_to_np_dtype(tt.xtype())}'"
+        if isinstance(v, AbstractHandle):
+            return "HandleInstance"
+        elif isinstance(v, AbstractFunction):
+            return "types.FunctionType"
+        elif isinstance(v, AbstractTuple):
+            return "tuple"
+        raise ValueError(f"Unhandled type: {v}")
 
     def convert_handle(self, v, t):
         return f"HandleInstance({self(v.state, v.abstract or to_abstract(v.state))})"
@@ -746,6 +751,7 @@ class PythonCompiler(_Compiler):
         pre_code = [
             "import math",
             "import numpy as np",
+            "import types",
             "from myia.utils import RandomStateWrapper",
             "from myia.lib import TaggedValue",
             "from myia.utils.universe import HandleInstance",
