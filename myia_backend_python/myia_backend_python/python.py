@@ -13,7 +13,7 @@ from myia.compile.transform import convert_grad, get_prim_graph
 from myia.debug.label import NodeLabeler
 from myia.graph_utils import toposort
 from myia.ir import Graph, manage
-from myia.lib import ANYTHING, AbstractArray, AbstractTuple, AbstractHandle, AbstractFunction
+from myia.lib import ANYTHING, AbstractArray, AbstractTuple, AbstractHandle, AbstractFunction, AbstractScalar
 from myia.operations import Primitive, primitives as P
 from myia.xtype import type_to_np_dtype
 
@@ -443,9 +443,9 @@ class PythonConstantConverter(_PythonConverter):
     def convert_type(self, v, t):
         """Return the python type as a string"""
         tt = t.element
-        #if isinstance(tt, AbstractScalar):
-        #    f"'{type_to_np_dtype(tt.xtype())}'"
-        if isinstance(v, AbstractHandle):
+        if isinstance(tt, AbstractScalar):
+            return f"np.{type_to_np_dtype(tt.xtype())}"
+        elif isinstance(v, AbstractHandle):
             return "HandleInstance"
         elif isinstance(v, AbstractFunction):
             return "types.FunctionType"
