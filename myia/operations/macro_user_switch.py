@@ -149,7 +149,7 @@ def getrepl(self, node, typ: lib.AbstractTuple, ntyp):
 def getrepl(self, node, typ: lib.AbstractHandle, ntyp):
     g = node.graph
     if typ is not ntyp:
-        return g.apply(P.cast_handle, node, AbstractCast(ntyp.element))
+        return g.apply(P.cast_handle, node, AbstractCast(typ.element, ntyp.element))
     else:
         return node
 

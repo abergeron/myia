@@ -654,9 +654,10 @@ class AbstractCast(AbstractWrapper):
     don't use this for normal casts.
     """
 
-    def __init__(self, element, values={}):
+    def __init__(self, old, new, values={}):
         """Initialize an AbstractCast."""
-        super().__init__(element, values)
+        self.old = old
+        super().__init__(new, values)
 
     def __pretty__(self, ctx):
         return pretty_call(ctx, "Cast", self.element)

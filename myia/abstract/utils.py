@@ -17,6 +17,7 @@ from .data import (
     AbstractAtom,
     AbstractClass,
     AbstractClassBase,
+    AbstractCast,
     AbstractDict,
     AbstractFunction,
     AbstractFunctionUnique,
@@ -326,6 +327,12 @@ def abstract_clone(self, x: AbstractDict, **kwargs):
 @ovld  # noqa: F811
 def abstract_clone(self, x: AbstractWrapper, **kwargs):
     return (yield type(x))(self(x.element, **kwargs), self(x.values, **kwargs))
+
+
+@ovld  # noqa: F811
+def abstract_clone(self, x: AbstractCast, **kwargs):
+    return (yield AbstractCast)(x.old, self(x.element, **kwargs),
+                                self(x.values, **kwargs))
 
 
 @ovld  # noqa: F811

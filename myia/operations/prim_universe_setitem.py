@@ -35,20 +35,22 @@ class _UniverseSetitemInferrer(StandardInferrer):
             return None
 
         if isinstance(h_t.element, AbstractCast):
-            v_t = await argrefs[2].get()
+            v_t = h_t.element.old
             g = outref.node.graph
             return engine.ref(
                 g.apply(
                     P.universe_setitem,
                     argrefs[0].node,
                     g.apply(
-                        P.cast_handle, argrefs[1].node, h_t.element.element
+                        P.cast_handle, argrefs[1].node, v_t,
                     ),
                     # This might insert the casts and whatnot in the
                     # wrong graph (not outref.node.graph,
                     # but argrefs[2].node.graph).
                     # I'm not sure it's a huge problem.
-                    getrepl(argrefs[2].node, v_t, h_t.element.element),
+                    #getrepl(argrefs[2].node, v_t, h_t.element.element),
+                    argrefs[2].node,
+                    #g.apply(P.tagged, argrefs[2].node),
                 ),
                 outref.context,
             )
