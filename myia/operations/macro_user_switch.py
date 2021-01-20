@@ -351,24 +351,9 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
     elif not groups[False]:
         return tbref
     else:
-        if replaceable_condition:
-            # If each type combination gives us a definite True or False
-            # for the condition, we don't need to keep the original
-            # condition.
-            type_filter_parts = []
-            for node, types in groups[True].items():
-                parts = [g.apply(P.hastype, node, t) for t in types]
-                new_cond = reduce(lambda x, y: g.apply(P.bool_or, x, y), parts)
-                type_filter_parts.append(new_cond)
-            type_filter = reduce(
-                lambda x, y: g.apply(P.bool_and, x, y), type_filter_parts
-            )
-            new_cond = type_filter
-        else:
-            new_cond = cond
         new_tb = await wrap(tbref, typemap[True])
         new_fb = await wrap(fbref, typemap[False])
-        return g.apply(P.switch, new_cond, new_tb, new_fb)
+        return g.apply(P.switch, cond, new_tb, new_fb)
 
 
 @macro
