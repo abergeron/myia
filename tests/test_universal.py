@@ -5,7 +5,7 @@ import pytest
 from myia import myia
 from myia.compile.backends import prim_groups as G
 from myia.lib import Empty, HandleInstance, core
-from myia.operations import cell_get, cell_set, make_cell
+from myia.operations import cell_get, cell_set, make_cell, tagged
 from myia.pipeline import standard_pipeline
 from myia.testing.multitest import bt
 
@@ -115,7 +115,7 @@ def test_universe_tuple(backend):
         t = (a.tail, 0)
         if not isinstance(t[0], Empty):
             return t[0].tail
-        return t[0]
+        return tagged(t[0])
 
     @_umyia(backend)
     def t1(a):
