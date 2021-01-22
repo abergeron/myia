@@ -78,13 +78,17 @@ def contains_union(self, x):
 
 
 @ovld  # noqa: F811
-def contains_union(self, x: lib.AbstractUnion):
+def contains_union(self, x: (lib.AbstractUnion, lib.AbstractTaggedUnion)):
     return set([x])
 
 
 @ovld  # noqa: F811
 def contains_union(self, x: (AbstractWrapper, AbstractStructure)):
-    return set.union(*[self(c) for c in x.children()])
+    vals = [self(c) for c in x.children()]
+    if len(vals) > 0:
+         return set.union(*vals)
+    else:
+        return set([])
 
 
 @ovld  # noqa: F811

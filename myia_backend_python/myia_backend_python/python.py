@@ -20,6 +20,7 @@ from myia.lib import (
     AbstractHandle,
     AbstractFunction,
     AbstractScalar,
+    AbstractTaggedUnion,
 )
 from myia.operations import Primitive, primitives as P
 from myia.xtype import type_to_np_dtype
@@ -458,6 +459,8 @@ class PythonConstantConverter(_PythonConverter):
             return "types.FunctionType"
         elif isinstance(v, AbstractTuple):
             return "tuple"
+        elif isinstance(v, AbstractTaggedUnion):
+            return None
         raise ValueError(f"Unhandled type: {v}")
 
     def convert_handle(self, v, t):
