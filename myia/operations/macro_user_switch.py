@@ -106,52 +106,49 @@ def _get_type(self, x: lib.AbstractUnion, *, u, opt):
 
 
 @ovld.dispatch(initial_state=lambda: {"cache": dict()})
-def getrepl(self, node, typ, ntyp):
+def getrepl(self, g, node, typ, ntyp):
     cache = self.cache
     try:
         return cache[node]
     except KeyError:
-        call = self.resolve(node, typ, ntyp)
-        rval = call(node, typ, ntyp)
+        call = self.resolve(g, node, typ, ntyp)
+        rval = call(g, node, typ, ntyp)
         cache[node] = rval
         return rval
 
 
 @ovld
-def getrepl(self, node, typ: object, ntyp):
+def getrepl(self, g, node, typ: object, ntyp):
     return node
 
 
 @ovld
-def getrepl(self, node, typ: AbstractWrapper, ntyp):
+def getrepl(self, g, node, typ: AbstractWrapper, ntyp):
     # We should never get here
     assert False
 
 
 @ovld
-def getrepl(self, node, typ: lib.AbstractUnion, ntyp):
+def getrepl(self, g, node, typ: lib.AbstractUnion, ntyp):
     if typ is not ntyp:
-        g = node.graph
         return g.apply(P.unsafe_static_cast, node, ntyp)
     else:
         return node
 
 
 @ovld
-def getrepl(self, node, typ: lib.AbstractTuple, ntyp):
-    g = node.graph
+def getrepl(self, g, node, typ: lib.AbstractTuple, ntyp):
     rval = node
     for i, (e, n) in enumerate(zip(typ.elements, ntyp.elements)):
         elem = g.apply(P.tuple_getitem, node, i)
-        res = self(elem, e, n)
+        res = self(g, elem, e, n)
         if elem is not res:
             rval = g.apply(P.tuple_setitem, rval, i, res)
     return rval
 
 
 @ovld
-def getrepl(self, node, typ: lib.AbstractHandle, ntyp):
-    g = node.graph
+def getrepl(self, g, node, typ: lib.AbstractHandle, ntyp):
     if typ is not ntyp:
         return g.apply(
             P.cast_handle, node, AbstractCast(typ.element, ntyp.element)
@@ -212,7 +209,7 @@ async def make_trials(engine, ref, repl, relevant):
             for u in res:
                 for opt in await force_pending(u.options):
                     ntyp = _get_type(typ, u=u, opt=opt)
-                    rval[frozenset({(node, ntyp)})] = getrepl(node, typ, ntyp)
+                    rval[frozenset({(node, ntyp)})] = getrepl(g, node, typ, ntyp)
             return rval
 
     if ref.node.is_apply():
@@ -261,7 +258,7 @@ async def make_trials(engine, ref, repl, relevant):
                 fv_repl = dict()
                 for node, opt in entry:
                     typ = await engine.ref(node, ref.context).get()
-                    fv_repl[node] = getrepl(node, typ, opt)
+                    fv_repl[node] = getrepl(g, node, typ, opt)
                 # NOTE: total=True may be overkill here, but the alternative is
                 # to collect siblings of g that g may refer to, which is what's
                 # done in the wrap function below.
@@ -308,7 +305,7 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
             children.update(node.graph.children)
             # This is a bit of a hack, but we need that type.
             otyp = await engine.ref(node, branch_ref.context).get()
-            cast = getrepl(node, otyp, typ)
+            cast = getrepl(rval, node, otyp, typ)
             fv_repl[node] = cast
 
         if nomod:

@@ -36,7 +36,7 @@ class _UniverseGetitemInferrer(StandardInferrer):
                 g.apply(P.cast_handle, argrefs[1].node, o_t),
             )
             return engine.ref(
-                getrepl(node, o_t, h_t.element.element), outref.context
+                getrepl(g, node, o_t, h_t.element.element), outref.context
             )
 
         return None
