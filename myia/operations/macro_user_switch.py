@@ -86,7 +86,7 @@ def contains_union(self, x: (lib.AbstractUnion, lib.AbstractTaggedUnion)):
 def contains_union(self, x: (AbstractWrapper, AbstractStructure)):
     vals = [self(c) for c in x.children()]
     if len(vals) > 0:
-         return set.union(*vals)
+        return set.union(*vals)
     else:
         return set([])
 
@@ -157,7 +157,7 @@ def getrepl(self, g, node, typ: lib.AbstractHandle, ntyp):
         return node
 
 
-async def make_trials(engine, ref, repl, relevant):
+async def make_trials(engine, ref, relevant, _g=None):
     """Return a collection of alternative subtrees to test type combinations.
 
     The subtree for ref.node is explored, and for every Union encountered we
@@ -200,6 +200,9 @@ async def make_trials(engine, ref, repl, relevant):
     node = ref.node
     g = node.graph
 
+    if _g is None:
+        _g = g
+
     if ref.node in relevant:
         typ = await ref.get()
 
@@ -209,7 +212,9 @@ async def make_trials(engine, ref, repl, relevant):
             for u in res:
                 for opt in await force_pending(u.options):
                     ntyp = _get_type(typ, u=u, opt=opt)
-                    rval[frozenset({(node, ntyp)})] = getrepl(g, node, typ, ntyp)
+                    rval[frozenset({(node, ntyp)})] = getrepl(
+                        _g, node, typ, ntyp
+                    )
             return rval
 
     if ref.node.is_apply():
@@ -217,7 +222,7 @@ async def make_trials(engine, ref, repl, relevant):
         arg_results = [
             (
                 await make_trials(
-                    engine, engine.ref(arg, ref.context), repl, relevant
+                    engine, engine.ref(arg, ref.context), relevant, _g
                 )
             ).items()
             for arg in ref.node.inputs
@@ -250,7 +255,7 @@ async def make_trials(engine, ref, repl, relevant):
                     fvs += fv.free_variables_total
                     continue
                 trial = await make_trials(
-                    engine, engine.ref(fv, ref.context), repl, relevant
+                    engine, engine.ref(fv, ref.context), relevant, _g
                 )
                 trials.append(trial.items())
             res = {}
@@ -258,7 +263,7 @@ async def make_trials(engine, ref, repl, relevant):
                 fv_repl = dict()
                 for node, opt in entry:
                     typ = await engine.ref(node, ref.context).get()
-                    fv_repl[node] = getrepl(g, node, typ, opt)
+                    fv_repl[node] = getrepl(_g, node, typ, opt)
                 # NOTE: total=True may be overkill here, but the alternative is
                 # to collect siblings of g that g may refer to, which is what's
                 # done in the wrap function below.
@@ -298,6 +303,7 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
         rval = branch_graph.make_new(relation="copy")
         children = set()
         fv_repl = {}
+
         for node, typ in branch_types.items():
             if branch_graph not in node.graph.scope:
                 continue
@@ -389,7 +395,7 @@ async def user_switch(info, condref, tbref, fbref):
             tbref.node.value.free_variables_total.keys()
             | fbref.node.value.free_variables_total.keys()
         )
-        cond_trials = await make_trials(engine, new_condref, {}, relevant)
+        cond_trials = await make_trials(engine, new_condref, relevant)
         if len(cond_trials) > 1:
             return await execute_trials(
                 engine, cond_trials, g, new_condref, tbref, fbref
