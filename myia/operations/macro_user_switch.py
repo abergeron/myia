@@ -212,7 +212,7 @@ async def make_trials(engine, ref, relevant, _g=None):
             for u in res:
                 for opt in await force_pending(u.options):
                     ntyp = _get_type(typ, u=u, opt=opt)
-                    rval[frozenset({(node, ntyp)})] = getrepl(
+                    rval[frozenset({(node, typ, ntyp)})] = getrepl(
                         _g, node, typ, ntyp
                     )
             return rval
@@ -261,9 +261,8 @@ async def make_trials(engine, ref, relevant, _g=None):
             res = {}
             for entry in prod(trials, lambda _: None):
                 fv_repl = dict()
-                for node, opt in entry:
-                    typ = await engine.ref(node, ref.context).get()
-                    fv_repl[node] = getrepl(_g, node, typ, opt)
+                for node, u, opt in entry:
+                    fv_repl[node] = getrepl(_g, node, u, opt)
                 # NOTE: total=True may be overkill here, but the alternative is
                 # to collect siblings of g that g may refer to, which is what's
                 # done in the wrap function below.
@@ -304,13 +303,11 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
         children = set()
         fv_repl = {}
 
-        for node, typ in branch_types.items():
+        for node, (otyp, typ) in branch_types.items():
             if branch_graph not in node.graph.scope:
                 continue
             nomod = False
             children.update(node.graph.children)
-            # This is a bit of a hack, but we need that type.
-            otyp = await engine.ref(node, branch_ref.context).get()
             cast = getrepl(rval, node, otyp, typ)
             fv_repl[node] = cast
 
@@ -334,7 +331,7 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
 
     replaceable_condition = True
     for keys, cond_trial in cond_trials.items():
-        if len(set(node for node, opt in keys)) != len(keys):
+        if len(set(node for node, u, opt in keys)) != len(keys):
             continue
         result = await engine.ref(cond_trial, ctx).get()
         assert result.xtype() is Bool
@@ -344,14 +341,23 @@ async def execute_trials(engine, cond_trials, g, condref, tbref, fbref):
             bucket = [True, False]
         else:
             bucket = [value]
-        for node, opt in keys:
+        for node, u, opt in keys:
             for value in bucket:
-                groups[value][node].append(opt)
+                groups[value][node].append((u, opt))
+
+    def _union_simplify(vals):
+        if len(vals) == 1:
+            return vals[0]
+
+        opts = [opt for u, opt in vals]
+        us = [u for u, opt in vals]
+        assert all(u is us[0] for u in us[1:])
+        return us[0], union_simplify(opts)
 
     typemap = {}
     for key, mapping in groups.items():
         typemap[key] = {
-            node: union_simplify(opts) for node, opts in mapping.items()
+            node: _union_simplify(vals) for node, vals in mapping.items()
         }
 
     if not groups[True]:
